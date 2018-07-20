@@ -378,7 +378,8 @@ def read_and_decode(filename_queue, image_height, image_width,
             tf.contrib.data.map_and_batch(
                 map_func=f_parse,
                 batch_size=batch_size,
-                num_parallel_batches=num_parallel_batches
+                num_parallel_batches=num_parallel_batches,
+                drop_remainder=True
             )
         )
     else:
@@ -386,7 +387,8 @@ def read_and_decode(filename_queue, image_height, image_width,
             tf.contrib.data.map_and_batch(
                 map_func=not_f_parse,
                 batch_size=batch_size,
-                num_parallel_batches=num_parallel_batches
+                num_parallel_batches=num_parallel_batches,
+                drop_remainder=True
             )
         )
 

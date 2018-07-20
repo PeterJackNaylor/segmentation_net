@@ -64,10 +64,11 @@ class BatchNormedUnet(UnetPadded):
             #self.training_variables.append(biases)
             #self.training_variables.append(beta)
             #self.training_variables.append(gamma)
-            
+            #import pdb; pdb.set_trace()
             self.var_to_reg.append(weights)
             for _, value in others.items():
-                self.training_variables.append(value)
+                if scope_name in value.name:
+                    self.training_variables.append(value)
             if self.tensorboard:
                 self.var_to_summarise.append(weights)
                 self.var_to_summarise.append(biases)
