@@ -56,7 +56,8 @@ class BatchNormedUnet(UnetPadded):
                                       strides=strides, 
                                       padding=padding)
             n_out = weights.shape[3].value
-            batch_normed, beta, gamma, others = ut.batch_normalization(conv_layer, n_out, self.is_training)
+            batch_normed, beta, gamma, others = ut.batch_normalization(conv_layer, n_out, 
+                                                                       self.is_training)
             conv_with_bias = tf.nn.bias_add(batch_normed, biases)
             act = self.non_activation_f(conv_with_bias)
 
@@ -68,6 +69,8 @@ class BatchNormedUnet(UnetPadded):
             self.var_to_reg.append(weights)
             for _, value in others.items():
                 if scope_name in value.name:
+                    # this if is necessary as the exponential decay variables are
+                    # retained in the dictionnary
                     self.training_variables.append(value)
             if self.tensorboard:
                 self.var_to_summarise.append(weights)

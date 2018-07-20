@@ -54,17 +54,19 @@ class ExampleDatagen(DataGeneratorTemplate):
         RGB: folder/Slide_id/image.png
              folder/GT_id/image.png
     """
-    def __init__(self, path, verbose=False):
+    def __init__(self, path, verbose=False, crop=4, cache=False):
         files = glob(path)
-        self.length = len(files) * 4
-        self.indices = [(f, i) for i in range(4) for f in files]
+        self.crop = crop
+        self.length = len(files) * self.crop
+        self.indices = [(f, i) for i in range(self.crop) for f in files]
+        self.loaded_images = {}
+        self.cache = cache
         if verbose:
             tqdm.write("Setting up DG.. This may take a while..")
             self.dic = {(f, i): self.create_couple(f, i) for f, i in tqdm(self.indices)}
         else:
             self.dic = {(f, i): self.create_couple(f, i) for f, i in self.indices}
         self.current_iter = 0
-
     def load_mask(self, image_name):
         """
         Way of loading mask images
@@ -150,9 +152,9 @@ class ExampleUNetDatagen(ExampleDatagen):
         RGB: folder/Slide_id/image.png
              folder/GT_id/image.png
     """
-    def __init__(self, path, add=92, verbose=False):
+    def __init__(self, path, add=92, verbose=False, crop=4, cache=False):
         self.add = add
-        ExampleDatagen.__init__(self, path, verbose)
+        ExampleDatagen.__init__(self, path, verbose, crop, cache)
 
     def expand(self, image):
         """
@@ -215,7 +217,17 @@ class ExampleDistDG(ExampleUNetDatagen):
         """
         Way of loading mask images
         """
-        mask_name = image_name.replace('Slide', 'GT')
-        mask = skimage.measure.label(imread(mask_name))
-        dist_mask = distance_without_normalise(mask)
+        if self.cache:
+            if image_name in self.loaded_images.keys():
+                dist_mask = self.loaded_images[image_name]
+            else:
+                mask_name = image_name.replace('Slide', 'GT')
+                mask = skimage.measure.label(imread(mask_name))
+                dist_mask = distance_without_normalise(mask)
+                self.loaded_images[image_name] = dist_mask
+        else:
+            mask_name = image_name.replace('Slide', 'GT')
+            mask = skimage.measure.label(imread(mask_name))
+            dist_mask = distance_without_normalise(mask)
+
         return dist_mask
