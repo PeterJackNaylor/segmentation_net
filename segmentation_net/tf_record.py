@@ -6,30 +6,21 @@ This module provides two main functions that are create_tfrecord and
 compute_mean. Given a list of data generator object with the attributes 
 of 'give_length' and 'next'.
 
-Attributes:
-    module_level_variable1 (int): Module level variables may be documented in
-        either the ``Attributes`` section of the module docstring, or in an
-        inline docstring immediately following the variable.
-
-        Either form is acceptable, but the two should not be mixed. Choose
-        one convention to document module level variables and be consistent
-        with it.
-
-Todo:
-    * For module TODOs
-    * You have to also use ``sphinx.ext.todo`` extension
-
-.. _Google Python Style Guide:
-   http://google.github.io/styleguide/pyguide.html
-
 """
+
 import tensorflow as tf
 import numpy as np
 
 def _bytes_feature(value):
+    """
+    Serieliaze the data to bytes.
+    """
     return tf.train.Feature(bytes_list=tf.train.BytesList(value=[value]))
 
 def _int64_feature(value):
+    """
+    Serieliaze the data to int64.
+    """
     return tf.train.Feature(int64_list=tf.train.Int64List(value=[value]))
 
 def create_tfrecord(outname, dg_list):

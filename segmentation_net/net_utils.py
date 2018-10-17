@@ -1,9 +1,9 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
 """
-    Defining early_stopper object
-    Useful for feeding data and create stopping criteria based on it
-    It can also just be a useful recorder..
+    In this module we define a helper object for training.
+    It records most of training and validation metrics at each epoch.
+    It defines an early stopping criteria.
 """
 
 import os
@@ -21,13 +21,15 @@ def fill_table_line(data, index, values, names):
         data.loc[index, name] = val
     return data 
 
-def any_bigger_in_array(data, tracked_var, lag, eps):
+def any_bigger_in_array(data, tracked_var, lag, eps, increase=True):
     """
     Checks on a pandas table if to early stop with respect to the variable_name
     """
     data = data.fillna(0)
     stop = False
     tracked_values = np.array(data[tracked_var])
+    if not increase:
+        tracked_values = tracked_values * -1
     if len(tracked_values) > lag - 1:
         lagged_value = tracked_values[-lag]
         after_lagged_values = tracked_values[-(lag-1):]
@@ -84,19 +86,25 @@ class ScoreRecorder(object):
             self.data_test = fill_table_line(self.data_test, epoch_number,
                                              values, names)
             self.data_test.to_csv(self.test_file_name)
-    def find_best_epoch(self, tracking_variable):
+    def find_best_epoch(self, tracking_variable, increase=True):
         """
         Find best epoch for model test set
         """
         data = self.data_test.fillna(0.)
-        lagged_value = data.tail(self.lag + 1)[tracking_variable].idxmax()
+        if increase:
+            lagged_value = data.tail(self.lag + 1)[tracking_variable].idxmax()
+        else:
+            lagged_value = data.tail(self.lag + 1)[tracking_variable].idxmin()
         return lagged_value
 
     def save_best(self, tracking_variable, save_weights=True):
         """
         Save best model
         """
-        best_epoch = self.find_best_epoch(tracking_variable)
+        increase = True
+        if tracking_variable == "loss":
+            increase = False
+        best_epoch = self.find_best_epoch(tracking_variable, increase)
         self.saver.restore(self.sess, "{}/model.ckpt-{}".format(self.log, best_epoch))
         last_step = self.data_test.index.max()
         if best_epoch != last_step:
@@ -109,5 +117,8 @@ class ScoreRecorder(object):
         If or not to perform early stopping for a given
         tracking variable on the test set.
         """
+        increase = True
+        if tracking_variable == "loss":
+            increase = False
         return any_bigger_in_array(self.data_test, tracking_variable, 
-                                   self.lag, self.eps)
+                                   self.lag, self.eps, increase)

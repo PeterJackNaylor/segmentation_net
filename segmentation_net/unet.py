@@ -3,32 +3,11 @@
 """ implementation of the unet
 
 
-In this module we implement a object defined as SegNet.
-SegNet is an abstract class from which we derive many
-of the more complex networks. Pang-net, U-net, D-net,
-and possibly many others. SegNet is the core of many 
-of the structures used and implements many basic functions.
-Such as a convolutional layer, ordering of the initialization
-procedure and creation of the graph needed by tensorflow.
-
-This module is not intented to be run as the class is abstract.
-
-Attributes:
-    module_level_variable1 (int): Module level variables may be documented in
-        either the ``Attributes`` section of the module docstring, or in an
-        inline docstring immediately following the variable.
-
-        Either form is acceptable, but the two should not be mixed. Choose
-        one convention to document module level variables and be consistent
-        with it.
-
-Todo:
-    * For module TODOs
-    * You have to also use ``sphinx.ext.todo`` extension
-
-.. _Google Python Style Guide:
-   http://google.github.io/styleguide/pyguide.html
-
+In this module we define two childs of the main class
+SegmentationNet. We modify the init_architecture method 
+of the class to represent the computationnal graph of the 
+original U-net implementation. We propose two methods,
+one with valid padding and the one without.
 """
 
 
@@ -42,7 +21,7 @@ from .segmentation_net import SegmentationNet
 
 class Unet(SegmentationNet):
     """
-    U-net implementation
+    U-net implementation with same padding.
     """
     def __init__(self, image_size=(256, 256), log="/tmp/unet",
                  num_channels=3, num_labels=2, tensorboard=True,
@@ -232,7 +211,7 @@ class Unet(SegmentationNet):
 
 class UnetPadded(Unet):
     """
-    U-net implementation
+    U-net implementation with valid padding.
     """
     def __init__(self, image_size=(212, 212), log="/tmp/unet",
                  num_channels=3, num_labels=2, tensorboard=True,

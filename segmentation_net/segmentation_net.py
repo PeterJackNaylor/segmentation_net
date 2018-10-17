@@ -4,30 +4,15 @@
 
 
 In this module we implement a object defined as SegNet.
-SegNet is an abstract class from which we derive many
+SegNet is a generic class from which we derive many
 of the more complex networks. Pang-net, U-net, D-net,
-and possibly many others. SegNet is the core of many 
+and possibly many others. SegmentationNet is the core of many 
 of the structures used and implements many basic functions.
 Such as a convolutional layer, ordering of the initialization
 procedure and creation of the graph needed by tensorflow.
 
-This module is not intented to be run as the class is abstract.
-
-Attributes:
-    module_level_variable1 (int): Module level variables may be documented in
-        either the ``Attributes`` section of the module docstring, or in an
-        inline docstring immediately following the variable.
-
-        Either form is acceptable, but the two should not be mixed. Choose
-        one convention to document module level variables and be consistent
-        with it.
-
-Todo:
-    * For module TODOs
-    * You have to also use ``sphinx.ext.todo`` extension
-
-.. _Google Python Style Guide:
-   http://google.github.io/styleguide/pyguide.html
+This module is not intented to be run as but can be.
+It implements PangNet
 
 """
 
@@ -41,6 +26,7 @@ from tqdm import tqdm, trange
 from . import utils_tensorflow as ut
 from .data_read_decode import read_and_decode
 from .net_utils import ScoreRecorder
+from .tensorflow_metrics import TFMetricsHandler, BINARY_BUNDLE
 from .utils import check_or_create, element_wise, merge_dictionnary
 
 MAX_INT = sys.maxsize
@@ -71,7 +57,8 @@ class SegmentationNet:
             tensorboard=True,
             seed=None,
             verbose=0,
-            displacement=0):
+            displacement=0,
+            list_metrics=BINARY_BUNDLE):
         ## this doesn't work yet... 
         ## when the graph is initialized it is completly equal everywhere.
         ## https://github.com/tensorflow/tensorflow/issues/9171
@@ -120,23 +107,19 @@ class SegmentationNet:
         # Empty variables to be defined in sub methods
         # Usually these variables will become tensorflow
         # variables
-        self.accuracy = None
         self.annotation = None
         self.data_init = None
         self.data_init_test = None
-        self.f1_score = None 
         self.image = None
         self.image_bf_mean = None
         self.image_placeholder = None
         self.learning_rate = None
         self.loss = None
-        self.mean_acc = None
         self.mean_tensor = None
         self.merged_summaries = None
         self.merged_summaries_test = None
-        self.precision = None
+        self.metric_handler = None
         self.predictions = None
-        self.recall = None
         self.optimizer = None
         self.score_recorder = None
         self.summary_writer = None
@@ -148,7 +131,7 @@ class SegmentationNet:
         # Initializing models
 
         self.init_architecture(verbose)
-        self.evaluation_graph(verbose)
+        self.evaluation_graph(list_metrics, verbose)
         # self.init_training_graph()
         self.saver = self.saver_object(self.training_variables, 3, verbose, 
                                        self.log, restore=True)
@@ -203,7 +186,7 @@ class SegmentationNet:
             seed = self.seed
         return ut.drop_out_layer(i_layer, keep_prob, scope, seed)
 
-    def evaluation_graph(self, verbose=0):
+    def evaluation_graph(self, list_metrics, verbose=0):
         """
         Graph optimization part, here we define the loss and how the model is evaluated
         """
@@ -221,7 +204,8 @@ class SegmentationNet:
                 self.additionnal_summaries.append(loss_sum)
                 # Disabled as we need several steps averaged
                 # self.test_summaries.append(loss_sum)
-            self.tf_compute_metrics(self.predictions, labels)
+            if list_metrics:
+                self.tf_compute_metrics(labels, self.predictions, list_metrics)
         
         #tf.global_variables_initializer().run()
         if verbose > 1:
@@ -422,12 +406,9 @@ class SegmentationNet:
         if label is not None:
             lbl = np.expand_dims(np.expand_dims(label, 2), 0)
             feed_dict[self.label_node] = lbl
-            tensors_add = [self.loss, self.accuracy,
-                           self.f1_score, self.recall, self.precision,
-                           self.mean_acc]
+            tensors_add = [self.loss] + self.metric_handler.tensors_out()
             tensors_to_get = tensors_to_get + tensors_add
-            names = ["loss", "accuracy", "f1", "recall", "precision",
-                     "performance"]
+            names = ["loss"] + self.metric_handler.tensors_name()
             tensors_names = tensors_names + names
         tensors_out = self.sess.run(tensors_to_get,
                                     feed_dict=feed_dict)
@@ -446,7 +427,7 @@ class SegmentationNet:
         tensorboard_first = self.tensorboard
         range_ = verbose_range(0, test_steps, "testing ",
                                verbose, 1)
-        summed_tensors = [0. for el in range(6)]
+        summed_tensors = [0. for el in range(self.metric_handler.length() + 1)]
         for _ in range_:
 
             tensors_out = self.record_iteration(epoch_iteration, total, 
@@ -458,15 +439,13 @@ class SegmentationNet:
             summaries = None
         test_scores = [el / test_steps for el in summed_tensors]
         if self.tensorboard:
-            names = ["loss", "accuracy", "f1", "recall", "precision",
-                     "performance"]
+            names = ["loss"] + self.metric_handler.tensors_names
             ut.add_values_to_summary(test_scores, names, self.summary_test_writer,
                                      epoch_iteration, tag="evaluation")
         if verbose > 1:
             tqdm.write('  epoch %d of %d' % (epoch_iteration, total))
             tqdm.write("test ::")
-            names = ["loss", "accuracy", "f1", "recall", "precision",
-                     "performance"]
+            names = ["loss"] + self.metric_handler.tensors_name()
             for value, name in zip(test_scores, names):
                 tqdm.write("{} : {}".format(name, value))
         return test_scores
@@ -478,9 +457,7 @@ class SegmentationNet:
         or test setting.
         """
         feed_dict = {self.is_training: train}
-        tensors = [self.loss, self.accuracy,
-                   self.f1_score, self.recall,
-                   self.precision, self.mean_acc]
+        tensors = [self.loss] + self.metric_handler.tensors_out()
         if tensorboard:
             if train:
                 summary_list = [self.merged_summaries]
@@ -502,8 +479,7 @@ class SegmentationNet:
             tqdm.write('  epoch {} / {}'.format(epoch_iteration, total))
             word = "training ::" if train else "test ::"
             tqdm.write(word)
-            names = ["loss", "accuracy", "f1", "recall", "precision",
-                     "performance"]
+            names = ["loss"] + self.metric_handler.tensors_name()
             for value, name in zip(tensors_out, names):
                 tqdm.write("{} : {}".format(name, value))
         return tensors_out
@@ -683,7 +659,7 @@ class SegmentationNet:
               early_stopping=3, mean_array=None, 
               loss_func=tf.nn.l2_loss, verbose=0,
               save_weights=True, num_parallele_batch=8,
-              log=None, restore=False):
+              log=None, restore=False, track_variable="loss"):
         """
         Train the model
         restore allows to re-initializing the variable as log will be empty.
@@ -726,8 +702,7 @@ class SegmentationNet:
                 if save_weights:  
                     self.saver.save(self.sess, log + '/' + "model.ckpt", 
                                     global_step=epoch_number)
-                names = ["loss", "accuracy", "f1", "recall", "precision",
-                         "performance"]
+                names = ["loss"] + self.metric_handler.tensors_name()
                 
                 values_train = self.record_train_step(epoch_number, last_epoch, verbose)
                 self.score_recorder.diggest(epoch_number, values_train, names)
@@ -737,48 +712,23 @@ class SegmentationNet:
                                                        test_steps, verbose)
                     self.score_recorder.diggest(epoch_number, values_test, names, train=False)
 
-                    if self.score_recorder.stop("f1"):
+                    if self.score_recorder.stop(track_variable):
                         if verbose > 0:
                             tqdm.write('stopping early')
                         break
         if test_record:
-            self.score_recorder.save_best("f1", save_weights)
+            self.score_recorder.save_best(track_variable, save_weights)
 
         return self.score_recorder.all_tables()
 
-    def tf_compute_metrics(self, pred, lbl):
+    def tf_compute_metrics(self, lbl, pred, list_metrics):
         """
         Compute tensorflow metrics for a pred and a lbl
         """
-
-        true_p = tf.count_nonzero(pred * lbl)
-        true_n = tf.count_nonzero((pred - 1) * (lbl - 1))
-        false_p = tf.count_nonzero(pred * (lbl - 1))
-        false_n = tf.count_nonzero((pred - 1) * lbl)
-
-        with tf.name_scope('accuracy'):
-            correct_prediction = tf.equal(pred, lbl)
-            self.accuracy = tf.reduce_mean(tf.cast(correct_prediction, tf.float32))
-            
-        with tf.name_scope('other_metrics'):
-            self.precision = tf.divide(true_p, tf.add(true_p, false_p))
-            self.recall = tf.divide(true_p, tf.add(true_p, false_n))
-            
-            num = tf.multiply(self.precision, self.recall)
-            dem = tf.add(self.precision, self.recall)
-            self.f1_score = tf.scalar_mul(2, tf.divide(num, dem))
-            
-            negative_precision = tf.divide(true_n, tf.add(true_n, false_n))
-            self.mean_acc = tf.divide(tf.add(self.precision, negative_precision), 2)
-            
+        self.metric_handler = TFMetricsHandler(lbl, pred, list_metrics)
 
         if self.tensorboard:
-            summaries = [tf.summary.scalar('accuracy', self.accuracy),
-                         tf.summary.scalar('precision', self.precision),
-                         tf.summary.scalar('recall', self.recall),
-                         tf.summary.scalar('f1', self.f1_score),
-                         tf.summary.scalar('performance', self.mean_acc)]
-            for __s in summaries:
+            for __s in self.metric_handler.summaries():
                 self.additionnal_summaries.append(__s)
                 # Disabled as we need several steps averaged
                 # self.test_summaries.append(__s)

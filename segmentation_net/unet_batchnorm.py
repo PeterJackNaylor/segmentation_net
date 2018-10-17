@@ -3,32 +3,9 @@
 """ implementation of the unet with batch norm
 
 
-In this module we implement a object defined as SegNet.
-SegNet is an abstract class from which we derive many
-of the more complex networks. Pang-net, U-net, D-net,
-and possibly many others. SegNet is the core of many 
-of the structures used and implements many basic functions.
-Such as a convolutional layer, ordering of the initialization
-procedure and creation of the graph needed by tensorflow.
-
-This module is not intented to be run as the class is abstract.
-
-Attributes:
-    module_level_variable1 (int): Module level variables may be documented in
-        either the ``Attributes`` section of the module docstring, or in an
-        inline docstring immediately following the variable.
-
-        Either form is acceptable, but the two should not be mixed. Choose
-        one convention to document module level variables and be consistent
-        with it.
-
-Todo:
-    * For module TODOs
-    * You have to also use ``sphinx.ext.todo`` extension
-
-.. _Google Python Style Guide:
-   http://google.github.io/styleguide/pyguide.html
-
+In this module we implement a object an other child 
+of the SegmentationNet class. We add batchnormalization
+to the u-net child.
 """
 
 
