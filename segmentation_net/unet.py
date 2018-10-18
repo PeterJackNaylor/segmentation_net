@@ -96,116 +96,77 @@ class Unet(SegmentationNet):
         with tf.name_scope(scope_name):
             return ut.max_pool(i_layer, padding=padding)
 
+    def max_double_conv(self, input, feat1, feat2, name):
+        """
+        A block constituted of 2 conv and
+        """
+        with tf.name_scope(name):
+            max = self.max_pool(input, scope_name="{}/max/".format(name))
+            double_conv = self.double_conv(max, feat1, feat2, name)
+
+            return [max, *double_conv]
+
+    def double_conv(self, input, feat1, feat2, name):
+        with tf.name_scope(name):
+            conv1 = self.conv_layer_f(input,
+                                      feat1,
+                                      feat2, 
+                                      3, 
+                                      scope_name="{}/conv1/".format(name))
+            conv2 = self.conv_layer_f(conv1,
+                                      feat2,
+                                      feat2, 
+                                      3, scope_name="{}/conv2/".format(name))
+            return [conv1, conv2]
+
+    def upsample_concat_double_conv(self, upsample_l, concat_l, feat1, feat2, name):
+        with tf.name_scope(name):
+            merged = self.trans_merge_layer_f(upsample_l, 
+                                              concat_l,
+                                              feat1,
+                                              feat2,
+                                              scope_name='{}/up_trans_merge/'.format(name))
+            double_conv = self.double_conv(merged, feat1, feat2, name)
+            return [merged, *double_conv]
+
+    def logit_layer(self, input, feat, num_labels, name="classification"):
+        strides = [1, 1, 1, 1]
+        with tf.name_scope(name):
+            self.last = self.conv_layer_f(input, feat,
+                                          num_labels, 1, 
+                                          strides=strides,
+                                          scope_name="logit/")
+            self.probability = tf.nn.softmax(self.last, axis=-1)
 
     def init_architecture(self, verbose):
         """
         Initialises variables for the graph
         """
-        with tf.name_scope('architecture'): 
-            strides = [1, 1, 1, 1]
-            self.conv11 = self.conv_layer_f(self.input_node,
-                                            self.num_channels,
-                                            self.n_features, 
-                                            3, scope_name="conv11/")
-            self.conv12 = self.conv_layer_f(self.conv11,
-                                            self.n_features,
-                                            self.n_features, 
-                                            3, scope_name="conv12/")
-            self.max1 = self.max_pool(self.conv12, scope_name="max1/")
-            self.conv21 = self.conv_layer_f(self.max1,
-                                            self.n_features,
-                                            2*self.n_features, 
-                                            3, scope_name="conv21/")
-            self.conv22 = self.conv_layer_f(self.conv21,
-                                            2*self.n_features,
-                                            2*self.n_features, 
-                                            3, scope_name="conv22/")
-            self.max2 = self.max_pool(self.conv22, scope_name="max2/")
-            self.conv31 = self.conv_layer_f(self.max2,
-                                            2*self.n_features,
-                                            4*self.n_features, 
-                                            3, scope_name="conv31/")
-            self.conv32 = self.conv_layer_f(self.conv31,
-                                            4*self.n_features,
-                                            4*self.n_features, 
-                                            3, scope_name="conv32/")
-            self.max3 = self.max_pool(self.conv32, scope_name="max3/")
-            self.conv41 = self.conv_layer_f(self.max3,
-                                            4*self.n_features,
-                                            8*self.n_features, 
-                                            3, scope_name="conv41/")
-            self.conv42 = self.conv_layer_f(self.conv41,
-                                            8*self.n_features,
-                                            8*self.n_features, 
-                                            3, scope_name="conv42/")
-            self.max4 = self.max_pool(self.conv42, scope_name="max4/")
-            self.conv51 = self.conv_layer_f(self.max4,
-                                            8*self.n_features,
-                                            16*self.n_features, 
-                                            3, scope_name="conv51/")
-            self.conv52 = self.conv_layer_f(self.conv51,
-                                            16*self.n_features,
-                                            16*self.n_features, 
-                                            3, scope_name="conv52/")
-            self.merged4 = self.trans_merge_layer_f(self.conv52, 
-                                                    self.conv42,
-                                                    16*self.n_features,
-                                                    8*self.n_features,
-                                                    scope_name='trans_merge_merge4/')
-            self.conv43 = self.conv_layer_f(self.merged4,
-                                            16*self.n_features,
-                                            8*self.n_features, 
-                                            3, scope_name="conv43/")
-            self.conv44 = self.conv_layer_f(self.conv43,
-                                            8*self.n_features,
-                                            8*self.n_features, 
-                                            3, scope_name="conv44/")
-            self.merged3 = self.trans_merge_layer_f(self.conv44, 
-                                                    self.conv32,
-                                                    8*self.n_features,
-                                                    4*self.n_features,
-                                                    scope_name='trans_merge_merge3/')
-            self.conv33 = self.conv_layer_f(self.merged3,
-                                            8*self.n_features,
-                                            4*self.n_features, 
-                                            3, scope_name="conv33/")
-            self.conv34 = self.conv_layer_f(self.conv33,
-                                            4*self.n_features,
-                                            4*self.n_features, 
-                                            3, scope_name="conv34/")
-            self.merged2 = self.trans_merge_layer_f(self.conv34, 
-                                                    self.conv22,
-                                                    4*self.n_features,
-                                                    2*self.n_features,
-                                                    scope_name='trans_merge_merge2/')
-            self.conv23 = self.conv_layer_f(self.merged2,
-                                            4*self.n_features,
-                                            2*self.n_features, 
-                                            3, scope_name="conv23/")
-            self.conv24 = self.conv_layer_f(self.conv23,
-                                            2*self.n_features,
-                                            2*self.n_features, 
-                                            3, scope_name="conv24/")
-            self.merged1 = self.trans_merge_layer_f(self.conv24, 
-                                                    self.conv12,
-                                                    2*self.n_features,
-                                                    self.n_features,
-                                                    scope_name='trans_merge_merge1/')
-            self.conv13 = self.conv_layer_f(self.merged1,
-                                            2*self.n_features,
-                                            self.n_features, 
-                                            3, scope_name="conv13/")
-            self.conv14 = self.conv_layer_f(self.conv13,
-                                            self.n_features,
-                                            self.n_features, 
-                                            3, scope_name="conv14/")
 
-            self.logit = self.conv_layer_f(self.conv14, self.n_features,
-                                           self.num_labels, 1, 
-                                           strides=strides,
-                                           scope_name="logit/")
-            self.probability = tf.nn.softmax(self.logit, axis=-1)
-            self.last = self.logit
+        self.block11 = self.double_conv(self.input_node, self.num_channels, 
+                                        self.n_features, "block11")
+        self.block21 = self.max_double_conv(self.block11[-1], self.n_features, 
+                                            2*self.n_features, "block21")
+        self.block31 = self.max_double_conv(self.block21[-1], 2*self.n_features, 
+                                            4*self.n_features, "block31")
+        self.block41 = self.max_double_conv(self.block31[-1], 4*self.n_features, 
+                                            8*self.n_features, "block41")
+        self.block5 = self.max_double_conv(self.block41[-1], 8*self.n_features, 
+                                            16*self.n_features, "block5")
+        self.block42 = self.upsample_concat_double_conv(self.block5[-1], self.block41[-1],
+                                                        16*self.n_features, 8*self.n_features, 
+                                                        "block42")
+        self.block32 = self.upsample_concat_double_conv(self.block42[-1], self.block31[-1], 
+                                                        8*self.n_features, 4*self.n_features, 
+                                                        "block32")
+        self.block22 = self.upsample_concat_double_conv(self.block32[-1], self.block21[-1],  
+                                                        4*self.n_features, 2*self.n_features, 
+                                                        "block22")
+        self.block12 = self.upsample_concat_double_conv(self.block22[-1], self.block11[-1], 
+                                                        2*self.n_features, self.n_features,
+                                                        "block12")
+        self.logit_layer(self.block12[-1], self.n_features, self.num_labels)
+
         if verbose > 1:
             tqdm.write('model variables initialised')
 

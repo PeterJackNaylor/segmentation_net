@@ -373,8 +373,8 @@ def augment_data(image_f, annotation_f, channels=3):
         # ElasticDeformation are very slow..
         image_f, annotation_f = random_flip(image_f, annotation_f, 0.5)    
         image_f, annotation_f = random_rotate(image_f, annotation_f, 0.2)  
-        image_f, annotation_f = random_blur(image_f, annotation_f, 0.2, channels)
-        image_f, annotation_f = random_brightness(image_f, annotation_f, 0.2, channels)
+        # image_f, annotation_f = random_blur(image_f, annotation_f, 0.2, channels)
+        # image_f, annotation_f = random_brightness(image_f, annotation_f, 0.2, channels)
         #image_f, annotation_f = random_elastic_deformation(image_f, annotation_f, 
         #                                                    0.5, 0.06, 0.12, 1.1)
         return image_f, annotation_f

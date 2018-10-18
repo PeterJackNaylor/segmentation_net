@@ -90,9 +90,10 @@ class SegmentationNet:
         self.var_to_summarise = []
 
         # Preparing tensorflow variables
-        self.global_step = tf.Variable(0., name='global_step', trainable=False)
-        self.is_training = tf.placeholder_with_default(True, shape=[])
         with tf.name_scope('default_inputs'):
+            self.global_step = tf.Variable(0., name='global_step', trainable=False)
+            self.is_training = tf.placeholder_with_default(True, shape=[])
+
             input_shape = (None, None, None, self.num_channels)
             label_shape = (None, None, None, 1)
             x_inp, y_inp = image_size[0] + 2*displacement, image_size[1] + 2*displacement
@@ -439,7 +440,7 @@ class SegmentationNet:
             summaries = None
         test_scores = [el / test_steps for el in summed_tensors]
         if self.tensorboard:
-            names = ["loss"] + self.metric_handler.tensors_names
+            names = ["loss"] + self.metric_handler.tensors_name()
             ut.add_values_to_summary(test_scores, names, self.summary_test_writer,
                                      epoch_iteration, tag="evaluation")
         if verbose > 1:
@@ -568,15 +569,15 @@ class SegmentationNet:
         """
         # Get the input queues ready
         self.setup_mean(mean_array)
-        with tf.name_scope('input_data'):
+        with tf.name_scope('input_data_from_queue'):
             self.setup_input(train_record, test_record, 
                              batch_size, num_parallele_batch,
                              verbose)
-        with tf.name_scope('queue_assigning'):
-            # Control the dependency to allow the flow thought the data queues
-            assign_rgb_to_queue = tf.assign(self.inp_variable, self.image, validate_shape=False)
-            assign_lbl_to_queue = tf.assign(self.lbl_variable, self.annotation, 
-                                            validate_shape=False)
+            with tf.name_scope('queue_assigning'):
+                # Control the dependency to allow the flow thought the data queues
+                assign_rgb_to_queue = tf.assign(self.inp_variable, self.image, validate_shape=False)
+                assign_lbl_to_queue = tf.assign(self.lbl_variable, self.annotation, 
+                                                validate_shape=False)
 
             # To plug in the queue to the main graph
         with tf.control_dependencies([assign_rgb_to_queue, assign_lbl_to_queue]):
@@ -633,22 +634,23 @@ class SegmentationNet:
         """
         Lists all summaries in one list that is then merged.
         """
-        if train:
-            summaries = [ut.add_to_summary(var) for var in self.var_to_summarise]
-            for var in self.var_activation_to_summarise:
-                hist_scal_var = ut.add_activation_summary(var)
-                summaries = summaries + hist_scal_var
-            for grad, var in self.gradient_to_summarise:
-                summaries.append(ut.add_gradient_summary(grad, var))
-            # for var in self.images_to_summarise:
-            #     summaries.append(ut.add_image_summary(var))
-            for summary in self.additionnal_summaries:
-                summaries.append(summary)
-        else:
-            summaries = self.test_summaries
-        summaries = [el for el in summaries if el is not None]
-        merged_summary = tf.summary.merge(summaries)
-        return merged_summary
+        with tf.name_scope("all_of_summary"):
+            if train:
+                summaries = [ut.add_to_summary(var) for var in self.var_to_summarise]
+                for var in self.var_activation_to_summarise:
+                    hist_scal_var = ut.add_activation_summary(var)
+                    summaries = summaries + hist_scal_var
+                for grad, var in self.gradient_to_summarise:
+                    summaries.append(ut.add_gradient_summary(grad, var))
+                # for var in self.images_to_summarise:
+                #     summaries.append(ut.add_image_summary(var))
+                for summary in self.additionnal_summaries:
+                    summaries.append(summary)
+            else:
+                summaries = self.test_summaries
+            summaries = [el for el in summaries if el is not None]
+            merged_summary = tf.summary.merge(summaries)
+            return merged_summary
 
 
 
@@ -678,12 +680,12 @@ class SegmentationNet:
         steps_in_epoch = ut.record_size(train_record) // batch_size
         test_steps = ut.record_size(test_record) if test_record else None
         max_steps = steps_in_epoch * n_epochs
-        
-        self.setup_last_graph(train_record, test_record, learning_rate,
-                              lr_procedure, weight_decay, batch_size, k,
-                              decay_ema, loss_func, early_stopping, 
-                              steps_in_epoch, mean_array, num_parallele_batch,
-                              verbose, log)
+        with tf.name_scope("random_things"):
+            self.setup_last_graph(train_record, test_record, learning_rate,
+                                  lr_procedure, weight_decay, batch_size, k,
+                                  decay_ema, loss_func, early_stopping, 
+                                  steps_in_epoch, mean_array, num_parallele_batch,
+                                  verbose, log)
 
         begin_iter = int(self.global_step.eval())
         begin_epoch = begin_iter // steps_in_epoch

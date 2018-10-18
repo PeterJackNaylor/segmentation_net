@@ -38,11 +38,11 @@ class DistanceUnet(BatchNormedUnet):
 
         crop_input_node = tf.slice(self.input_node, slicing, sliced_axis)
  
-        input_s = tf.summary.image("input", crop_input_node, max_outputs=4)
-        label_s = tf.summary.image("label", self.label_node, max_outputs=4)
+        input_s = tf.summary.image("input", crop_input_node, max_outputs=3)
+        label_s = tf.summary.image("label", self.label_node, max_outputs=3)
  
-        input_s = tf.summary.image("input", crop_input_node, max_outputs=4)
-        label_s = tf.summary.image("label_dist", self.label_node, max_outputs=4)
+        input_s = tf.summary.image("input", crop_input_node, max_outputs=3)
+        label_s = tf.summary.image("label_dist", self.label_node, max_outputs=3)
         pred_dist_s = tf.summary.image("pred_dist", tf.cast(self.predictions, tf.float32), 
                                        max_outputs=4)
 
@@ -52,8 +52,8 @@ class DistanceUnet(BatchNormedUnet):
         clip_round_label = tf.clip_by_value(tf.round(self.label_node), 0, 1)
         label_label = tf.cast(clip_round_label, tf.uint8) * 255
 
-        labelbin_s = tf.summary.image("label_bin", label_label, max_outputs=4)
-        predbin_s = tf.summary.image("pred_bin", label_pred, max_outputs=4)
+        labelbin_s = tf.summary.image("label_bin", label_label, max_outputs=3)
+        predbin_s = tf.summary.image("pred_bin", label_pred, max_outputs=3)
 
         list_s = [input_s, label_s, pred_dist_s, labelbin_s, predbin_s]
         for __s in list_s:
@@ -92,3 +92,11 @@ class DistanceUnet(BatchNormedUnet):
         #tf.global_variables_initializer().run()
         if verbose > 1:
             tqdm.write('computational graph initialised')
+
+    def logit_layer(self, input, feat, num_labels, name="regression"):
+        strides = [1, 1, 1, 1]
+        with tf.name_scope(name):
+            self.last = self.conv_layer_f(input, feat,
+                                          num_labels, 1, 
+                                          strides=strides,
+                                          scope_name="logit/")
