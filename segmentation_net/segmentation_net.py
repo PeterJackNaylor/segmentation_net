@@ -682,6 +682,7 @@ class SegmentationNet:
         last_iter = max_steps + begin_iter
         range_ = verbose_range(begin_iter, last_iter, "training ",
                                verbose, 0)
+        #import pdb; pdb.set_trace()
         for step in range_:
             self.sess.run(self.training_op)
             if (step - begin_epoch + 1) % steps_in_epoch == 0 and (step - begin_epoch) != 0:

@@ -42,9 +42,6 @@ class DistanceUnet(BatchNormedUnet):
         crop_input_node = tf.slice(self.input_node, slicing, sliced_axis)
  
         input_s = tf.summary.image("input", crop_input_node, max_outputs=3)
-        label_s = tf.summary.image("label", self.label_node, max_outputs=3)
- 
-        input_s = tf.summary.image("input", crop_input_node, max_outputs=3)
         label_s = tf.summary.image("label_dist", self.label_node, max_outputs=3)
         pred_dist_s = tf.summary.image("pred_dist", tf.cast(self.last, tf.float32), 
                                        max_outputs=3)
@@ -74,6 +71,7 @@ class DistanceUnet(BatchNormedUnet):
 
             with tf.name_scope('loss'):
                 mse_ = tf.losses.mean_squared_error(self.last, self.label_node)
+                mse_ = tf.Print(mse_, [tf.reduce_max(self.label_node), tf.reduce_min(self.label_node), tf.reduce_max(self.probability), tf.reduce_min(self.probability)])
                 self.loss = tf.reduce_mean(mse_)
                 loss_sum = tf.summary.scalar("mean_squared_error", self.loss)                
 
