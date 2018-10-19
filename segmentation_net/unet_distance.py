@@ -40,14 +40,13 @@ class DistanceUnet(BatchNormedUnet):
         sliced_axis = [-1, size_to_be, size_to_be, -1]
 
         crop_input_node = tf.slice(self.input_node, slicing, sliced_axis)
- 
+
         input_s = tf.summary.image("input", crop_input_node, max_outputs=3)
         label_s = tf.summary.image("label_dist", self.label_node, max_outputs=3)
         pred_dist_s = tf.summary.image("pred_dist", tf.cast(self.last, tf.float32), 
                                        max_outputs=3)
 
         label_pred = tf.cast(self.predictions, tf.uint8) * 255
-
         label_label = tf.cast(self.label_int, tf.uint8) * 255
 
         labelbin_s = tf.summary.image("label_bin", label_label, max_outputs=3)
@@ -65,6 +64,7 @@ class DistanceUnet(BatchNormedUnet):
         Graph optimization part, here we define the loss and how the model is evaluated
         """
         with tf.name_scope('evaluation'):
+
             self.predictions = tf.cast(tf.clip_by_value(tf.round(self.last), 0, 1), tf.int64)
             self.label_int = tf.cast(tf.clip_by_value(tf.round(self.label_node), 0, 1), tf.int64)
             self.probability = self.last
