@@ -22,6 +22,9 @@ class DistanceUnet(BatchNormedUnet):
     def __init__(self, image_size=(212, 212), log="/tmp/unet",
                  num_channels=3, tensorboard=True, seed=42,
                  verbose=0, n_features=2):
+        
+        self.label_int = None
+
         super(DistanceUnet, self).__init__(image_size, log, num_channels,
                                            1, tensorboard, seed, verbose, 
                                            n_features)
@@ -43,14 +46,12 @@ class DistanceUnet(BatchNormedUnet):
  
         input_s = tf.summary.image("input", crop_input_node, max_outputs=3)
         label_s = tf.summary.image("label_dist", self.label_node, max_outputs=3)
-        pred_dist_s = tf.summary.image("pred_dist", tf.cast(self.predictions, tf.float32), 
-                                       max_outputs=4)
+        pred_dist_s = tf.summary.image("pred_dist", tf.cast(self.last, tf.float32), 
+                                       max_outputs=3)
 
-        clip_round_pred = tf.clip_by_value(tf.round(self.predictions), 0, 1)
-        label_pred = tf.cast(clip_round_pred, tf.uint8) * 255
+        label_pred = tf.cast(self.predictions, tf.uint8) * 255
 
-        clip_round_label = tf.clip_by_value(tf.round(self.label_node), 0, 1)
-        label_label = tf.cast(clip_round_label, tf.uint8) * 255
+        label_label = tf.cast(self.label_int, tf.uint8) * 255
 
         labelbin_s = tf.summary.image("label_bin", label_label, max_outputs=3)
         predbin_s = tf.summary.image("pred_bin", label_pred, max_outputs=3)
@@ -67,26 +68,22 @@ class DistanceUnet(BatchNormedUnet):
         Graph optimization part, here we define the loss and how the model is evaluated
         """
         with tf.name_scope('evaluation'):
-            self.probability = self.last #Correcting what is in the init_architecture method
-            self.predictions = self.last
+            self.predictions = tf.cast(tf.clip_by_value(tf.round(self.last), 0, 1), tf.int64)
+            self.label_int = tf.cast(tf.clip_by_value(tf.round(self.label_node), 0, 1), tf.int64)
+            self.probability = self.last
 
             with tf.name_scope('loss'):
                 mse_ = tf.losses.mean_squared_error(self.last, self.label_node)
                 self.loss = tf.reduce_mean(mse_)
-                loss_sum = tf.summary.scalar("mean_squared_error", self.loss)
-
-
-            round_pred = tf.clip_by_value(tf.round(self.last), 0, 1)
-            label_pred = tf.squeeze(tf.cast(round_pred, tf.int64), squeeze_dims=[3])
-
-            round_label = tf.clip_by_value(tf.round(self.label_node), 0, 1)
-            label_label = tf.squeeze(tf.cast(round_label, tf.int64), squeeze_dims=[3])
+                loss_sum = tf.summary.scalar("mean_squared_error", self.loss)                
 
             if self.tensorboard:
                 self.additionnal_summaries.append(loss_sum)
                 # Disabled as we need several steps averaged
                 # self.test_summaries.append(loss_sum)
             if list_metrics:
+                label_label = tf.squeeze(self.label_int, squeeze_dims=[3])
+                label_pred = tf.squeeze(self.predictions, squeeze_dims=[3])
                 self.tf_compute_metrics(label_label, label_pred, list_metrics)
         
         #tf.global_variables_initializer().run()

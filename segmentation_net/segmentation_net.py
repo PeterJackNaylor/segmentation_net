@@ -534,18 +534,18 @@ class SegmentationNet:
         Initialises everything that has not been initialized.
         TODO: better initialization for data
         """
+        with tf.name_scope("initialisation"):
+            extra_variables = []
+            # if self.data_init_test:
+            #     extra_variables.append(tf.group(self.data_init, self.data_init_test))
+            # else:
+            #     extra_variables.append(tf.group(self.data_init))
+            self.init_uninit(extra_variables)
 
-        extra_variables = []
-        # if self.data_init_test:
-        #     extra_variables.append(tf.group(self.data_init, self.data_init_test))
-        # else:
-        #     extra_variables.append(tf.group(self.data_init))
-        self.init_uninit(extra_variables)
-
-        if self.data_init_test: 
-            init_op = tf.group(self.data_init, self.data_init_test)
-        else:
-            init_op = tf.group(self.data_init)
+            if self.data_init_test: 
+                init_op = tf.group(self.data_init, self.data_init_test)
+            else:
+                init_op = tf.group(self.data_init)
         self.sess.run(init_op)
 
     def setup_input(self, train_record, test_record=None, batch_size=1, 
@@ -568,8 +568,8 @@ class SegmentationNet:
         computations. it also inits everything needed.
         """
         # Get the input queues ready
-        self.setup_mean(mean_array)
         with tf.name_scope('input_data_from_queue'):
+            self.setup_mean(mean_array)
             self.setup_input(train_record, test_record, 
                              batch_size, num_parallele_batch,
                              verbose)
@@ -580,10 +580,30 @@ class SegmentationNet:
                                                 validate_shape=False)
 
             # To plug in the queue to the main graph
+
         with tf.control_dependencies([assign_rgb_to_queue, assign_lbl_to_queue]):
-            self.setup_whatsleft(test_record, learning_rate, k,
-                                 lr_procedure, steps_in_epoch, loss_func, 
-                                 weight_decay, decay_ema, log)
+            with tf.name_scope("final_calibrations"):
+                with tf.name_scope('learning_rate_scheduler'):
+                    self.learning_rate_scheduler(learning_rate, k, lr_procedure,
+                                                 steps_in_epoch)
+                with tf.name_scope('regularization'):
+                    self.regularize_model(loss_func, weight_decay)
+
+                with tf.name_scope('optimization'):
+                    self.optimization(self.training_variables)
+
+                with tf.name_scope('exponential_moving_average'):
+                    self.exponential_moving_average(self.training_variables, decay_ema)
+
+            if self.tensorboard:
+                self.add_summary_images()
+                self.summary_writer = tf.summary.FileWriter(log + '/train', 
+                                                            graph=self.sess.graph)
+                self.merged_summaries = self.summarise_model()
+                self.merged_summaries_test = self.summarise_model(train=False)
+                if test_record is not None:
+                    self.summary_test_writer = tf.summary.FileWriter(log + '/test',
+                                                                     graph=self.sess.graph)
         self.setup_init()
         self.score_recorder = ScoreRecorder(self.saver, self.sess, 
                                             log, lag=early_stopping)
@@ -598,56 +618,26 @@ class SegmentationNet:
             mean_tensor = tf.constant(mean_array, dtype=tf.float32)
             self.mean_tensor = tf.reshape(mean_tensor, [1, 1, self.num_channels])
 
-    def setup_whatsleft(self, test_record, learning_rate, k,
-                        lr_procedure, steps_in_epoch, loss_func, 
-                        weight_decay, decay_ema, log):
-        """
-        
-        """
-
-        # with tf.name_scope('evaluation_graph'):
-        #     self.evaluation_graph()
-
-        with tf.name_scope('learning_rate_scheduler'):
-            self.learning_rate_scheduler(learning_rate, k, lr_procedure,
-                                         steps_in_epoch)
-        with tf.name_scope('regularization'):
-            self.regularize_model(loss_func, weight_decay)
-
-        with tf.name_scope('optimization'):
-            self.optimization(self.training_variables)
-
-        with tf.name_scope('exponential_moving_average'):
-            self.exponential_moving_average(self.training_variables, decay_ema)
-
-        if self.tensorboard:
-            self.add_summary_images()
-            self.summary_writer = tf.summary.FileWriter(log + '/train', 
-                                                        graph=self.sess.graph)
-            self.merged_summaries = self.summarise_model()
-            self.merged_summaries_test = self.summarise_model(train=False)
-            if test_record is not None:
-                self.summary_test_writer = tf.summary.FileWriter(log + '/test',
-                                                                 graph=self.sess.graph)
-
     def summarise_model(self, train=True):
         """
         Lists all summaries in one list that is then merged.
         """
-        with tf.name_scope("all_of_summary"):
-            if train:
-                summaries = [ut.add_to_summary(var) for var in self.var_to_summarise]
+        if train:
+            summaries = [ut.add_to_summary(var) for var in self.var_to_summarise]
+            with tf.name_scope("activations"):
                 for var in self.var_activation_to_summarise:
                     hist_scal_var = ut.add_activation_summary(var)
                     summaries = summaries + hist_scal_var
-                for grad, var in self.gradient_to_summarise:
-                    summaries.append(ut.add_gradient_summary(grad, var))
-                # for var in self.images_to_summarise:
-                #     summaries.append(ut.add_image_summary(var))
-                for summary in self.additionnal_summaries:
-                    summaries.append(summary)
-            else:
-                summaries = self.test_summaries
+            for grad, var in self.gradient_to_summarise:
+                summaries.append(ut.add_gradient_summary(grad, var))
+            # for var in self.images_to_summarise:
+            #     summaries.append(ut.add_image_summary(var))
+            for summary in self.additionnal_summaries:
+                summaries.append(summary)
+        else:
+            summaries = self.test_summaries
+
+        with tf.name_scope("create_summary"):
             summaries = [el for el in summaries if el is not None]
             merged_summary = tf.summary.merge(summaries)
             return merged_summary
@@ -680,12 +670,11 @@ class SegmentationNet:
         steps_in_epoch = ut.record_size(train_record) // batch_size
         test_steps = ut.record_size(test_record) if test_record else None
         max_steps = steps_in_epoch * n_epochs
-        with tf.name_scope("random_things"):
-            self.setup_last_graph(train_record, test_record, learning_rate,
-                                  lr_procedure, weight_decay, batch_size, k,
-                                  decay_ema, loss_func, early_stopping, 
-                                  steps_in_epoch, mean_array, num_parallele_batch,
-                                  verbose, log)
+        self.setup_last_graph(train_record, test_record, learning_rate,
+                              lr_procedure, weight_decay, batch_size, k,
+                              decay_ema, loss_func, early_stopping, 
+                              steps_in_epoch, mean_array, num_parallele_batch,
+                              verbose, log)
 
         begin_iter = int(self.global_step.eval())
         begin_epoch = begin_iter // steps_in_epoch
@@ -712,6 +701,7 @@ class SegmentationNet:
                 if test_record:
                     values_test = self.record_test_set(epoch_number, last_epoch, 
                                                        test_steps, verbose)
+
                     self.score_recorder.diggest(epoch_number, values_test, names, train=False)
 
                     if self.score_recorder.stop(track_variable):
