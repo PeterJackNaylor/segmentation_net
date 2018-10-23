@@ -81,10 +81,10 @@ class Unet(SegmentationNet):
         sliced_axis = [-1, size_to_be, size_to_be, -1]
         crop_input_node = tf.slice(self.input_node, slicing, sliced_axis)
 
-        input_s = tf.summary.image("input", crop_input_node, max_outputs=4)
-        label_s = tf.summary.image("label", self.label_node, max_outputs=4)
+        input_s = tf.summary.image("input", crop_input_node, max_outputs=3)
+        label_s = tf.summary.image("label", self.label_node, max_outputs=3)
         pred = tf.expand_dims(tf.cast(self.predictions, tf.float32), dim=3)
-        predi_s = tf.summary.image("pred", pred, max_outputs=4)
+        predi_s = tf.summary.image("pred", pred, max_outputs=3)
         for __s in [input_s, label_s, predi_s]:
             self.additionnal_summaries.append(__s)
             self.test_summaries.append(__s)

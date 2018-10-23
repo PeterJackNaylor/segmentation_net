@@ -26,7 +26,7 @@ from tqdm import tqdm, trange
 from . import utils_tensorflow as ut
 from .data_read_decode import read_and_decode
 from .net_utils import ScoreRecorder
-from .tensorflow_metrics import TFMetricsHandler, BINARY_BUNDLE
+from .tensorflow_metrics import TFMetricsHandler, metric_bundles_function
 from .utils import check_or_create, element_wise, merge_dictionnary
 
 MAX_INT = sys.maxsize
@@ -57,8 +57,7 @@ class SegmentationNet:
             tensorboard=True,
             seed=None,
             verbose=0,
-            displacement=0,
-            list_metrics=BINARY_BUNDLE):
+            displacement=0):
         ## this doesn't work yet... 
         ## when the graph is initialized it is completly equal everywhere.
         ## https://github.com/tensorflow/tensorflow/issues/9171
@@ -129,6 +128,9 @@ class SegmentationNet:
         self.training_op = None
         self.train_iterator = None
 
+        # multi-class or binary
+        list_metrics = metric_bundles_function(num_labels)
+
         # Initializing models
 
         self.init_architecture(verbose)
@@ -142,11 +144,14 @@ class SegmentationNet:
         Image summary to add to the summary
         TODO Does not work with the cond in the network flow...
         """
-        input_s = tf.summary.image("input", self.input_node, max_outputs=4)
-        label_s = tf.summary.image("label", self.label_node, max_outputs=4)
+        input_s = tf.summary.image("input", self.input_node, max_outputs=3)
+        label_s = tf.summary.image("label", self.label_node, max_outputs=3)
         pred = tf.expand_dims(tf.cast(self.predictions, tf.float32), dim=3)
-        predi_s = tf.summary.image("pred", pred, max_outputs=4)
-        for __s in [input_s, label_s, predi_s]:
+        prob = tf.expand_dims(tf.cast(tf.multiply(self.probability[:,:,:,0], 255.), tf.float32), dim=3)
+        
+        predi_s = tf.summary.image("pred", pred, max_outputs=3)
+        probi_s = tf.summary.image("prob", prob, max_outputs=3)
+        for __s in [input_s, label_s, predi_s, probi_s]:
             self.additionnal_summaries.append(__s)
             self.test_summaries.append(__s)
 
@@ -442,7 +447,7 @@ class SegmentationNet:
         if self.tensorboard:
             names = ["loss"] + self.metric_handler.tensors_name()
             ut.add_values_to_summary(test_scores, names, self.summary_test_writer,
-                                     epoch_iteration, tag="evaluation")
+                                     epoch_iteration, tag="evaluation_test_ut")
         if verbose > 1:
             tqdm.write('  epoch %d of %d' % (epoch_iteration, total))
             tqdm.write("test ::")
@@ -664,7 +669,7 @@ class SegmentationNet:
 
         if early_stopping != 3:
             self.saver = self.saver_object(self.training_variables, 
-                                           keep=early_stopping, 
+                                           keep=early_stopping + 1, 
                                            verbose=verbose, log=log,
                                            restore=restore)
 
