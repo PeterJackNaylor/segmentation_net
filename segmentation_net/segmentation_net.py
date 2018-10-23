@@ -467,6 +467,7 @@ class SegmentationNet:
             if summaries is not None:
                 summary_list = summaries
             tensors = tensors + summary_list
+
         tensors_out = self.sess.run(tensors, feed_dict=feed_dict)
         
         if tensorboard:

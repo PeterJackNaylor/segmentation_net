@@ -79,6 +79,8 @@ class Precision(MetricsAbstract):
 
     def computation_graph(self, label, prediction):
         true_p, _, false_p, _ = binary_confusion(label, prediction)
+        precision = tf.divide(true_p, tf.add(true_p, false_p))
+        precision = tf.where(tf.is_nan(precision), tf.zeros_like(precision), precision)
         self.tensor_out = tf.divide(true_p, tf.add(true_p, false_p))
 
 class Recall(MetricsAbstract):
@@ -90,7 +92,9 @@ class Recall(MetricsAbstract):
 
     def computation_graph(self, label, prediction):
         true_p, _, _, false_n = binary_confusion(label, prediction)
-        self.tensor_out = tf.divide(true_p, tf.add(true_p, false_n))
+        recall = tf.divide(true_p, tf.add(true_p, false_n))
+        recall = tf.where(tf.is_nan(recall), tf.zeros_like(recall), recall)
+        self.tensor_out = recall
 
 class F1_score(MetricsAbstract):
     """
@@ -105,7 +109,9 @@ class F1_score(MetricsAbstract):
         recall = tf.divide(true_p, tf.add(true_p, false_n))
         num = tf.multiply(precision, recall)
         dem = tf.add(precision, recall)
-        self.tensor_out = tf.scalar_mul(2, tf.divide(num, dem))
+        f1 = tf.scalar_mul(2, tf.divide(num, dem))
+        f1 = tf.where(tf.is_nan(f1), tf.zeros_like(f1), f1)
+        self.tensor_out = f1
 
 class Performance(MetricsAbstract):
     """
