@@ -43,7 +43,8 @@ class DistanceUnet(BatchNormedUnet):
 
         input_s = tf.summary.image("input", crop_input_node, max_outputs=3)
         label_s = tf.summary.image("label_dist", self.label_node, max_outputs=3)
-        pred_dist_s = tf.summary.image("pred_dist", tf.cast(self.last, tf.float32), 
+        visu_dist = tf.clip_by_value(tf.cast(self.last, tf.float32), 0, 255)
+        pred_dist_s = tf.summary.image("pred_dist", visu_dist, 
                                        max_outputs=3)
 
         label_pred = tf.cast(self.predictions, tf.uint8) * 255
