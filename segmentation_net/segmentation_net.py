@@ -104,6 +104,7 @@ class SegmentationNet:
                                             name="lbl_input")
             self.input_node = tf.placeholder_with_default(self.inp_variable, shape=input_shape)
             self.label_node = tf.placeholder_with_default(self.lbl_variable, shape=label_shape)
+
         # Empty variables to be defined in sub methods
         # Usually these variables will become tensorflow
         # variables
@@ -127,6 +128,7 @@ class SegmentationNet:
         self.test_iterator = None
         self.training_op = None
         self.train_iterator = None
+        self.test_iterator = None
 
         # multi-class or binary
         list_metrics = metric_bundles_function(num_labels)
@@ -147,7 +149,7 @@ class SegmentationNet:
         input_s = tf.summary.image("input", self.input_node, max_outputs=3)
         label_s = tf.summary.image("label", self.label_node, max_outputs=3)
         pred = tf.expand_dims(tf.cast(self.predictions, tf.float32), dim=3)
-        prob = tf.expand_dims(tf.cast(tf.multiply(self.probability[:,:,:,0], 255.), tf.float32), dim=3)
+        prob = tf.expand_dims(tf.cast(tf.multiply(self.probability[:, :, :, 0], 255.), tf.float32), dim=3)
         
         predi_s = tf.summary.image("pred", pred, max_outputs=3)
         probi_s = tf.summary.image("prob", prob, max_outputs=3)
@@ -273,7 +275,7 @@ class SegmentationNet:
                                       displacement=self.displacement,
                                       seed=self.seed)
                 self.data_init, self.train_iterator = out
-            if test:
+            if test is not None:
                 with tf.name_scope('test_queue'):
                     out = read_and_decode(test, 
                                           self.image_size[0], 
@@ -311,7 +313,10 @@ class SegmentationNet:
             return test_images, test_labels
 
         with tf.name_scope('switch'):
-            self.image_bf_mean, self.annotation = tf.cond(self.is_training, f_true, f_false)
+            if self.test_iterator is not None:
+                self.image_bf_mean, self.annotation = tf.cond(self.is_training, f_true, f_false)
+            else:
+                self.image_bf_mean, self.annotation = f_true()
         if self.mean_tensor is not None:
             self.image = self.image_bf_mean - self.mean_tensor
         else:
@@ -383,7 +388,7 @@ class SegmentationNet:
         Combines loss with regularization loss
         """
         if var is not None:
-            self.loss = self.loss + weight_decay*loss_func(var)
+            self.loss = self.loss + weight_decay * loss_func(var)
 
     def predict_list(self, list_rgb, mean=None, label=None):
         """
@@ -449,11 +454,13 @@ class SegmentationNet:
             ut.add_values_to_summary(test_scores, names, self.summary_test_writer,
                                      epoch_iteration, tag="evaluation_test_ut")
         if verbose > 1:
-            tqdm.write('  epoch %d of %d' % (epoch_iteration, total))
-            tqdm.write("test ::")
+            msg = "Test :"
+            tqdm.write(msg)
             names = ["loss"] + self.metric_handler.tensors_name()
-            for value, name in zip(test_scores, names):
-                tqdm.write("{} : {}".format(name, value))
+            msg = ""
+            for value, name in zip(tensors_out, names):
+                msg += "{} : {:.5f}  ".format(name, value)
+            tqdm.write(msg)
         return test_scores
 
     def record_iteration(self, epoch_iteration, total, tensorboard=True,
@@ -473,7 +480,7 @@ class SegmentationNet:
                 summary_list = summaries
             tensors = tensors + summary_list
         tensors_out = self.sess.run(tensors, feed_dict=feed_dict)
-        
+
         if tensorboard:
             if train:
                 self.summary_writer.add_summary(tensors_out[-1], epoch_iteration)
@@ -482,12 +489,16 @@ class SegmentationNet:
             del tensors_out[-1]
 
         if verbose > 1:
-            tqdm.write('  epoch {} / {}'.format(epoch_iteration, total))
-            word = "training ::" if train else "test ::"
-            tqdm.write(word)
+            i = datetime.now()
+            msg = i.strftime('[%Y/%m/%d %H:%M:%S]: ')
+            msg += '  Epoch {} / {}'.format(epoch_iteration, total)
+            msg += "  training :" if train else "test :"
+            tqdm.write(msg)
             names = ["loss"] + self.metric_handler.tensors_name()
+            msg = ""
             for value, name in zip(tensors_out, names):
-                tqdm.write("{} : {}".format(name, value))
+                msg += "{} : {:.5f}  ".format(name, value)
+            tqdm.write(msg)
         return tensors_out
 
     def record_train_step(self, epoch_iteration, total, verbose):
@@ -547,7 +558,7 @@ class SegmentationNet:
             #     extra_variables.append(tf.group(self.data_init))
             self.init_uninit(extra_variables)
 
-            if self.data_init_test: 
+            if self.data_init_test is not None: 
                 init_op = tf.group(self.data_init, self.data_init_test)
             else:
                 init_op = tf.group(self.data_init)
@@ -673,7 +684,7 @@ class SegmentationNet:
                                            restore=restore)
 
         steps_in_epoch = ut.record_size(train_record) // batch_size
-        test_steps = ut.record_size(test_record) if test_record else None
+        test_steps = ut.record_size(test_record) if test_record is not None else None
         max_steps = steps_in_epoch * n_epochs
         self.setup_last_graph(train_record, test_record, learning_rate,
                               lr_procedure, weight_decay, batch_size, k,
@@ -687,15 +698,11 @@ class SegmentationNet:
         last_iter = max_steps + begin_iter
         range_ = verbose_range(begin_iter, last_iter, "training ",
                                verbose, 0)
-        #import pdb; pdb.set_trace()
+        # import pdb; pdb.set_trace()
         for step in range_:
             self.sess.run(self.training_op)
             if (step - begin_epoch + 1) % steps_in_epoch == 0 and (step - begin_epoch) != 0:
                 epoch_number = step // steps_in_epoch
-                if verbose > 1:
-                    i = datetime.now()
-                    tqdm.write('\n')
-                    tqdm.write(i.strftime('[%Y/%m/%d %H:%M:%S]: '))
                 if save_weights:  
                     self.saver.save(self.sess, log + '/' + "model.ckpt", 
                                     global_step=epoch_number)

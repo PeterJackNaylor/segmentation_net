@@ -9,7 +9,7 @@ We modify the graph evaluation as we now optimize
 a least squared error.
 """
 
-
+import numpy as np
 import tensorflow as tf
 from tqdm import tqdm
 
@@ -22,9 +22,8 @@ class DistanceUnet(BatchNormedUnet):
     def __init__(self, image_size=(212, 212), log="/tmp/unet",
                  num_channels=3, tensorboard=True, seed=42,
                  verbose=0, n_features=2):
-        
-        self.label_int = None
 
+        self.label_int = None
         super(DistanceUnet, self).__init__(image_size, log, num_channels,
                                            1, tensorboard, seed, verbose, 
                                            n_features)
@@ -58,28 +57,32 @@ class DistanceUnet(BatchNormedUnet):
             self.additionnal_summaries.append(__s)
             self.test_summaries.append(__s)
 
-
-
     def evaluation_graph(self, list_metrics, verbose=0):
         """
         Graph optimization part, here we define the loss and how the model is evaluated
         """
         with tf.name_scope('evaluation'):
-
             self.predictions = tf.cast(tf.clip_by_value(tf.round(self.last), 0, 1), tf.int64)
-            self.label_int = tf.cast(tf.clip_by_value(tf.round(self.label_node), 0, 1), tf.int64)
-            self.probability = self.last
-
+            
             with tf.name_scope('loss'):
                 mse_ = tf.losses.mean_squared_error(self.last, self.label_node)
-                mse_ = tf.Print(mse_, [tf.reduce_max(self.label_node), tf.reduce_min(self.label_node), tf.reduce_max(self.probability), tf.reduce_min(self.probability)])
                 self.loss = tf.reduce_mean(mse_)
-                loss_sum = tf.summary.scalar("mean_squared_error", self.loss)                
+                loss_sum = tf.summary.scalar("mean_squared_error", self.loss)
+                
+                # This trick ensures that self.label_int and self.label_node followed the same path
+                # through the tensorflow graph.
+                dummy_tf = tf.Variable(0., validate_shape=False, name="dummy_tf")
+                ensuring_label_int = tf.assign(dummy_tf, self.loss + 0)
+                with tf.control_dependencies([ensuring_label_int]):
+                    binary = tf.clip_by_value(tf.round(self.label_node), 0, 1)
+                    self.label_int = tf.cast(binary, tf.int64)
+
 
             if self.tensorboard:
                 self.additionnal_summaries.append(loss_sum)
                 # Disabled as we need several steps averaged
                 # self.test_summaries.append(loss_sum)
+
             if list_metrics:
                 label_label = tf.squeeze(self.label_int, squeeze_dims=[3])
                 label_pred = tf.squeeze(self.predictions, squeeze_dims=[3])
@@ -88,11 +91,12 @@ class DistanceUnet(BatchNormedUnet):
         #tf.global_variables_initializer().run()
         if verbose > 1:
             tqdm.write('computational graph initialised')
-
-    def logit_layer(self, input, feat, num_labels, name="regression"):
+     
+    def logit_layer(self, input_, feat, num_labels, name="regression"):
         strides = [1, 1, 1, 1]
         with tf.name_scope(name):
-            self.last = self.conv_layer_f(input, feat,
+            self.last = self.conv_layer_f(input_, feat,
                                           num_labels, 1, 
                                           strides=strides,
                                           scope_name="logit/")
+            self.probability = self.last
