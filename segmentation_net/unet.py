@@ -25,11 +25,12 @@ class Unet(SegmentationNet):
     """
     def __init__(self, image_size=(256, 256), log="/tmp/unet",
                  num_channels=3, num_labels=2, tensorboard=True,
-                 seed=42, verbose=0, n_features=2):
+                 seed=42, verbose=0, n_features=2, displacement=0, 
+                 padding_for_conv="SAME"):
         self.n_features = n_features
-        self.padding_for_conv = "SAME"
+        self.padding_for_conv = padding_for_conv
         super(Unet, self).__init__(image_size, log, num_channels,
-                                   num_labels, tensorboard, seed, verbose, 0)
+                                   num_labels, tensorboard, seed, verbose, displacement)
 
     def conv_layer_f(self, i_layer, s_input_channel, size_output_channel,
                      ks, strides=[1, 1, 1, 1], scope_name="conv", random_init=0.1, 
@@ -96,19 +97,19 @@ class Unet(SegmentationNet):
         with tf.name_scope(scope_name):
             return ut.max_pool(i_layer, padding=padding)
 
-    def max_double_conv(self, input, feat1, feat2, name):
+    def max_double_conv(self, input_, feat1, feat2, name):
         """
         A block constituted of 2 conv and
         """
         with tf.name_scope(name):
-            max = self.max_pool(input, scope_name="{}/max/".format(name))
-            double_conv = self.double_conv(max, feat1, feat2, name)
+            max_ = self.max_pool(input_, scope_name="{}/max/".format(name))
+            double_conv = self.double_conv(max_, feat1, feat2, name)
 
             return [max, *double_conv]
 
-    def double_conv(self, input, feat1, feat2, name):
+    def double_conv(self, input_, feat1, feat2, name):
         with tf.name_scope(name):
-            conv1 = self.conv_layer_f(input,
+            conv1 = self.conv_layer_f(input_,
                                       feat1,
                                       feat2, 
                                       3, 
@@ -129,10 +130,10 @@ class Unet(SegmentationNet):
             double_conv = self.double_conv(merged, feat1, feat2, name)
             return [merged, *double_conv]
 
-    def logit_layer(self, input, feat, num_labels, name="classification"):
+    def logit_layer(self, input_, feat, num_labels, name="classification"):
         strides = [1, 1, 1, 1]
         with tf.name_scope(name):
-            self.last = self.conv_layer_f(input, feat,
+            self.last = self.conv_layer_f(input_, feat,
                                           num_labels, 1, 
                                           strides=strides,
                                           scope_name="logit/")
@@ -152,7 +153,7 @@ class Unet(SegmentationNet):
         self.block41 = self.max_double_conv(self.block31[-1], 4*self.n_features, 
                                             8*self.n_features, "block41")
         self.block5 = self.max_double_conv(self.block41[-1], 8*self.n_features, 
-                                            16*self.n_features, "block5")
+                                           16*self.n_features, "block5")
         self.block42 = self.upsample_concat_double_conv(self.block5[-1], self.block41[-1],
                                                         16*self.n_features, 8*self.n_features, 
                                                         "block42")
@@ -177,8 +178,9 @@ class UnetPadded(Unet):
     def __init__(self, image_size=(212, 212), log="/tmp/unet",
                  num_channels=3, num_labels=2, tensorboard=True,
                  seed=42, verbose=0, n_features=2):
-        self.n_features = n_features
-        self.padding_for_conv = "VALID"
-        super(Unet, self).__init__(image_size, log, num_channels,
-                                   num_labels, tensorboard, seed, 
-                                   verbose, 92)
+        displacement = 92
+        padding_for_conv = "VALID"
+        super(UnetPadded, self).__init__(image_size, log, num_channels,
+                                         num_labels, tensorboard, seed, 
+                                         verbose, n_features, displacement, 
+                                         padding_for_conv)
