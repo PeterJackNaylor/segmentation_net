@@ -544,16 +544,16 @@ class SegmentationNet:
             os.mkdir(folder)
         except:
             pass
-        imsave(folder + "last.png", (tensors_out[-1][0,:,:,0] * float(255) / tensors_out[-1].max()).astype("uint8"))
+        imsave(folder + "last.png", (tensors_out[-1][0,:,:,0] * float(255) / tensors_out[-1][0].max()).astype("uint8"))
         print(folder, "max:", np.max(tensors_out[-1][0,:,:,0]), "min:", np.min(tensors_out[-1][0,:,:,0]))
         del tensors_out[-1]
         imsave(folder + "predictions.png", (tensors_out[-1][0,:,:,0] * 255).astype("uint8"))
         del tensors_out[-1]
-        imsave(folder +"label_node.png", (tensors_out[-1][0,:,:,0] * float(255) / tensors_out[-1].max()).astype("uint8"))
+        imsave(folder +"label_node.png", (tensors_out[-1][0,:,:,0] * float(255) / tensors_out[-1][0].max()).astype("uint8"))
         del tensors_out[-1]
         imsave(folder +"label_int.png", (tensors_out[-1][0,:,:,0] * 255).astype("uint8"))
         del tensors_out[-1]
-        imsave(folder +"annotation.png", (tensors_out[-1][0,:,:,0] * float(255) / tensors_out[-1].max()).astype("uint8"))
+        imsave(folder +"annotation.png", (tensors_out[-1][0,:,:,0] * float(255) / tensors_out[-1][0].max()).astype("uint8"))
         del tensors_out[-1]
         imsave(folder + "input_bf_mean.png", tensors_out[-1][0,92:-92,92:-92].astype("uint8"))
         del tensors_out[-1]
