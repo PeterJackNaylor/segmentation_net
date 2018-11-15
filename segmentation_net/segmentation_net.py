@@ -656,7 +656,7 @@ class SegmentationNet:
         """
         self.init_queue_train(train_record, batch_size, num_parallele_batch, verbose)
         if test_record is not None:
-            self.init_queue_test(test_record, batch_size, num_parallele_batch, verbose)
+            self.init_queue_test(test_record, verbose)
         self.init_queue_node()
 
     def setup_last_graph(self, train_record, test_record=None,
