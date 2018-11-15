@@ -71,6 +71,7 @@ class SegmentationNet:
         self.num_labels = num_labels
         self.tensorboard = tensorboard
         self.seed = seed
+        self.verbose = verbose
         self.displacement = displacement #Variable important for the init queues
 
         check_or_create(log)
@@ -131,14 +132,14 @@ class SegmentationNet:
         self.test_iterator = None
 
         # multi-class or binary
-        list_metrics = metric_bundles_function(num_labels)
+        self.list_metrics = metric_bundles_function(num_labels)
 
         # Initializing models
 
-        self.init_architecture(verbose)
-        self.evaluation_graph(list_metrics, verbose)
+        self.init_architecture(self.verbose)
+        self.evaluation_graph(self.list_metrics, self.verbose)
         # self.init_training_graph()
-        self.saver = self.saver_object(self.training_variables, 3, verbose, 
+        self.saver = self.saver_object(self.training_variables, 3, self.verbose, 
                                        self.log, restore=True)
 
     def add_summary_images(self):
@@ -261,7 +262,7 @@ class SegmentationNet:
         if verbose > 1:
             tqdm.write('model variables initialised')
 
-    def init_queue(self, train, test, batch_size, num_parallele_batch, verbose):
+    def init_queue_train(self, train, batch_size, num_parallele_batch, verbose):
         """
         New queues for coordinator
         """
@@ -275,22 +276,29 @@ class SegmentationNet:
                                       displacement=self.displacement,
                                       seed=self.seed)
                 self.data_init, self.train_iterator = out
-            if test is not None:
-                with tf.name_scope('test_queue'):
-                    out = read_and_decode(test, 
-                                          self.image_size[0], 
-                                          self.image_size[1],
-                                          1,
-                                          1,
-                                          train=False,
-                                          displacement=self.displacement,
-                                          buffers=1,
-                                          shuffle_buffer=1,
-                                          seed=self.seed)
-                    self.data_init_test, self.test_iterator = out
         if verbose > 1:
-            tqdm.write("queue initialized")
+            tqdm.write("train queue initialized")
 
+    def init_queue_test(self, test, verbose):
+        """
+        New queues for coordinator
+        """
+        with tf.device('/cpu:0'):
+            with tf.name_scope('testing_queue'):
+                out = read_and_decode(test, 
+                                      self.image_size[0], 
+                                      self.image_size[1],
+                                      1,
+                                      1,
+                                      train=False,
+                                      displacement=self.displacement,
+                                      buffers=1,
+                                      shuffle_buffer=1,
+                                      seed=self.seed)
+                self.data_init_test, self.test_iterator = out
+            
+        if verbose > 1:
+            tqdm.write("test queue initialized")
     def init_queue_node(self):
         """
         The input node can now come from the record or can be inputed
@@ -313,10 +321,16 @@ class SegmentationNet:
             return test_images, test_labels
 
         with tf.name_scope('switch'):
-            if self.test_iterator is not None:
+            only_train = self.train_iterator is not None
+            only_test = self.test_iterator is not None
+            if only_train and only_test:
                 self.image_bf_mean, self.annotation = tf.cond(self.is_training, f_true, f_false)
-            else:
+            elif only_train:
                 self.image_bf_mean, self.annotation = f_true()
+            elif only_test:
+                self.image_bf_mean, self.annotation = f_false()
+            else:
+                tqdm.write("No queue were found")
         if self.mean_tensor is not None:
             self.image = self.image_bf_mean - self.mean_tensor
         else:
@@ -431,11 +445,37 @@ class SegmentationNet:
                 out_dic[name] = tens[0]
         return out_dic
 
-    def record_test_set(self, epoch_iteration, total, test_steps, verbose=0, summaries=None):
+    def predict_test_record(self, test_record, mean_array=None):
+        if mean_array is not None:
+            self.setup_mean(mean_array)
+            # TODO remove self.mean_array
+        self.mean_array = mean_array
+        self.init_queue_test(test_record, self.verbose)
+        self.init_queue_node()
+        with tf.name_scope('queue_assigning'):
+            # Control the dependency to allow the flow thought the data queues
+            assign_rgb_to_queue = tf.assign(self.inp_variable, self.image, validate_shape=False)
+            assign_lbl_to_queue = tf.assign(self.lbl_variable, self.annotation, 
+                                            validate_shape=False)
+        with tf.control_dependencies([assign_rgb_to_queue, assign_lbl_to_queue]):
+            self.evaluation_graph(self.list_metrics, verbose=0)
+        self.setup_init()
+        test_steps = ut.record_size(test_record)
+        score = self.record_test_set(0, 0, test_steps, verbose=self.verbose, summaries=None,
+                                     follow_tensorboard_self=False)
+        return score
+
+    def record_test_set(self, epoch_iteration, total, test_steps, verbose=0, summaries=None, 
+                        follow_tensorboard_self=True):
         """
         Process the whole test set according to model definition
         """
-        tensorboard_first = self.tensorboard
+        if follow_tensorboard_self:
+            tensorboard_first = self.tensorboard
+            tensorboard2 = self.tensorboard
+        else:
+            tensorboard_first = False
+            tensorboard2 = False
         range_ = verbose_range(0, test_steps, "testing ",
                                verbose, 1)
         summed_tensors = [0. for el in range(self.metric_handler.length() + 1)]
@@ -449,7 +489,7 @@ class SegmentationNet:
             tensorboard_first = False
             summaries = None
         test_scores = [el / test_steps for el in summed_tensors]
-        if self.tensorboard:
+        if tensorboard2:
             names = ["loss"] + self.metric_handler.tensors_name()
             ut.add_values_to_summary(test_scores, names, self.summary_test_writer,
                                      epoch_iteration, tag="evaluation_test_ut")
@@ -458,7 +498,7 @@ class SegmentationNet:
             tqdm.write(msg)
             names = ["loss"] + self.metric_handler.tensors_name()
             msg = ""
-            for value, name in zip(tensors_out, names):
+            for value, name in zip(test_scores, names):
                 msg += "{} : {:.5f}  ".format(name, value)
             tqdm.write(msg)
         return test_scores
@@ -480,7 +520,43 @@ class SegmentationNet:
                 summary_list = summaries
             tensors = tensors + summary_list
 
+        tensors.append(self.image_bf_mean)
+        tensors.append(self.annotation)
+        tensors.append(self.label_int)
+        tensors.append(self.label_node)
+        tensors.append(self.predictions)
+        tensors.append(self.last)
+
         tensors_out = self.sess.run(tensors, feed_dict=feed_dict)
+
+        from skimage.io import imsave
+        import os
+        try:
+            if train:
+                parent_folder = "imagetrain_folder"
+            else:
+                parent_folder = "imagetest_folder"
+            os.mkdir(parent_folder)
+        except:
+            pass
+        folder = parent_folder + "/{}/".format(np.random.randint(1000000))
+        try:
+            os.mkdir(folder)
+        except:
+            pass
+        imsave(folder + "last.png", (tensors_out[-1][0,:,:,0] * float(255) / tensors_out[-1].max()).astype("uint8"))
+        print(folder, "max:", np.max(tensors_out[-1][0,:,:,0]), "min:", np.min(tensors_out[-1][0,:,:,0]))
+        del tensors_out[-1]
+        imsave(folder + "predictions.png", (tensors_out[-1][0,:,:,0] * 255).astype("uint8"))
+        del tensors_out[-1]
+        imsave(folder +"label_node.png", (tensors_out[-1][0,:,:,0] * float(255) / tensors_out[-1].max()).astype("uint8"))
+        del tensors_out[-1]
+        imsave(folder +"label_int.png", (tensors_out[-1][0,:,:,0] * 255).astype("uint8"))
+        del tensors_out[-1]
+        imsave(folder +"annotation.png", (tensors_out[-1][0,:,:,0] * float(255) / tensors_out[-1].max()).astype("uint8"))
+        del tensors_out[-1]
+        imsave(folder + "input_bf_mean.png", tensors_out[-1][0,92:-92,92:-92].astype("uint8"))
+        del tensors_out[-1]
 
         if tensorboard:
             if train:
@@ -559,10 +635,18 @@ class SegmentationNet:
             #     extra_variables.append(tf.group(self.data_init))
             self.init_uninit(extra_variables)
 
-            if self.data_init_test is not None: 
+            test_init = self.data_init_test is not None
+            train_init = self.data_init is not None
+
+            if train_init and test_init: 
                 init_op = tf.group(self.data_init, self.data_init_test)
-            else:
+            elif train_init:
                 init_op = tf.group(self.data_init)
+            elif test_init:
+                init_op = tf.group(self.data_init_test)
+            else:
+                if self.verbose:
+                    tqdm.write("No data initialization possible")
         self.sess.run(init_op)
 
     def setup_input(self, train_record, test_record=None, batch_size=1, 
@@ -570,7 +654,9 @@ class SegmentationNet:
         """
         Setting up data feed queues
         """
-        self.init_queue(train_record, test_record, batch_size, num_parallele_batch, verbose)
+        self.init_queue_train(train_record, batch_size, num_parallele_batch, verbose)
+        if test_record is not None:
+            self.init_queue_test(test_record, batch_size, num_parallele_batch, verbose)
         self.init_queue_node()
 
     def setup_last_graph(self, train_record, test_record=None,
@@ -611,6 +697,8 @@ class SegmentationNet:
 
                 with tf.name_scope('exponential_moving_average'):
                     self.exponential_moving_average(self.training_variables, decay_ema)
+            
+            self.evaluation_graph(self.list_metrics, verbose=0)
 
             if self.tensorboard:
                 self.add_summary_images()
@@ -666,9 +754,9 @@ class SegmentationNet:
               weight_decay=0.0005, batch_size=1,
               decay_ema=0.9999, k=0.96, n_epochs=10,
               early_stopping=3, mean_array=None, 
-              loss_func=tf.nn.l2_loss, verbose=0,
-              save_weights=True, num_parallele_batch=8,
-              log=None, restore=False, track_variable="loss"):
+              loss_func=tf.nn.l2_loss, save_weights=True, 
+              num_parallele_batch=8, log=None, 
+              restore=False, track_variable="loss"):
         """
         Train the model
         restore allows to re-initializing the variable as log will be empty.
@@ -681,7 +769,7 @@ class SegmentationNet:
         if early_stopping != 3:
             self.saver = self.saver_object(self.training_variables, 
                                            keep=early_stopping + 1, 
-                                           verbose=verbose, log=log,
+                                           verbose=self.verbose, log=log,
                                            restore=restore)
 
         steps_in_epoch = ut.record_size(train_record) // batch_size
@@ -691,14 +779,14 @@ class SegmentationNet:
                               lr_procedure, weight_decay, batch_size, k,
                               decay_ema, loss_func, early_stopping, 
                               steps_in_epoch, mean_array, num_parallele_batch,
-                              verbose, log)
+                              self.verbose, log)
 
         begin_iter = int(self.global_step.eval())
         begin_epoch = begin_iter // steps_in_epoch
         last_epoch = begin_epoch + n_epochs
         last_iter = max_steps + begin_iter
         range_ = verbose_range(begin_iter, last_iter, "training ",
-                               verbose, 0)
+                               self.verbose, 0)
         # import pdb; pdb.set_trace()
         for step in range_:
             self.sess.run(self.training_op)
@@ -709,17 +797,17 @@ class SegmentationNet:
                                     global_step=epoch_number)
                 names = ["loss"] + self.metric_handler.tensors_name()
                 
-                values_train = self.record_train_step(epoch_number, last_epoch, verbose)
+                values_train = self.record_train_step(epoch_number, last_epoch, self.verbose)
                 self.score_recorder.diggest(epoch_number, values_train, names)
                 
                 if test_record:
                     values_test = self.record_test_set(epoch_number, last_epoch, 
-                                                       test_steps, verbose)
+                                                       test_steps, self.verbose)
 
                     self.score_recorder.diggest(epoch_number, values_test, names, train=False)
 
                     if self.score_recorder.stop(track_variable):
-                        if verbose > 0:
+                        if self.verbose > 0:
                             tqdm.write('stopping early')
                         break
         if test_record:
