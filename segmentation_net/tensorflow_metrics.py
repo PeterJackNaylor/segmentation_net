@@ -193,5 +193,6 @@ def metric_bundles_function(num_label):
     if num_label < 3:
         bundle = [Accuracy(), Recall(), Precision(), F1_score(), Performance()]
     else:
+        print("Mean Accuracy not yet implemented")
         bundle = [Accuracy()] # , MeanAccuracy(num_classes=num_label)]
     return bundle

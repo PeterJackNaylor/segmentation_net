@@ -37,14 +37,14 @@ def add_to_summary(var):
     if var is not None:
         summary = tf.summary.histogram(var.op.name, var)
     return summary
-def add_values_to_summary(scores, names, summary_writer, step, tag="test"):
+def add_value_to_summary(score, name, summary_writer, step, tag="test"):
     """
     Add list of values (with corresponding names) to a given summary
     writer. It will be saved with the name step.
     """
     summary = tf.Summary()
-    for value, name in zip(scores, names):
-        summary.value.add(tag="{}/{}".format(tag, name), simple_value=value)
+    #for value, name in zip(scores, names):
+    summary.value.add(tag="{}/{}".format(tag, name), simple_value=score)
     summary_writer.add_summary(summary, step)
 
 def batch_normalization(input, n_out, phase_train, scope='bn', decay=0.9, eps=1e-5, seed=None):

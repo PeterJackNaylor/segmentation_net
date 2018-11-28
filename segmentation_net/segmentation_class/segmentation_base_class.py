@@ -1,23 +1,34 @@
+#!/usr/bin/env python
+# -*- coding: utf-8 -*-
+"""segnet package file tf_record
 
+Segmentation_base_class ->  SegmentationInput -> SegmentationCompile -> SegmentationSummaries
 
+"""
+
+import sys
+from abc import ABCMeta, abstractmethod
 
 import tensorflow as tf
+from numpy import random, zeros
+from tqdm import tqdm
+
+from .. import utils_tensorflow as ut
+from ..tensorflow_metrics import metric_bundles_function
+from ..utils import check_or_create
+
+MAX_INT = sys.maxsize
 
 class SegmentationBaseClass:
-	def __init__(
-            self,
-            image_size=(224, 224),
-            log="/tmp/net",
-            mean_array=None,
-            num_channels=3,
-            num_labels=2,
-            seed=None,
-            verbose=0,
-            displacement=0):
+
+    __metaclass__ = ABCMeta
+    def __init__(self, image_size=(224, 224), log="/tmp/net",
+                 mean_array=None, num_channels=3, num_labels=2,
+                 seed=None, verbose=0, displacement=0, fake_batch=1):
         ## this doesn't work yet... 
         ## when the graph is initialized it is completly equal everywhere.
         ## https://github.com/tensorflow/tensorflow/issues/9171
-        np.random.seed(seed)
+        random.seed(seed)
         tf.reset_default_graph()
         tf.set_random_seed(seed)
         # Parameters
@@ -26,7 +37,6 @@ class SegmentationBaseClass:
         self.mean_array = mean_array
         self.num_channels = num_channels
         self.num_labels = num_labels
-        self.tensorboard = tensorboard
         self.seed = seed
         self.verbose = verbose
         self.displacement = displacement #Variable important for the init queues
@@ -37,7 +47,7 @@ class SegmentationBaseClass:
         self.sess = tf.InteractiveSession()
         self.sess.as_default()
         
-
+        self.tensorboard = True
         self.gradient_to_summarise = []
         self.test_summaries = []
         self.additionnal_summaries = []
@@ -45,46 +55,18 @@ class SegmentationBaseClass:
         self.var_activation_to_summarise = []
         self.var_to_reg = []
         self.var_to_summarise = []
-
-        # Preparing tensorflow variables
-        self.setup_input_network()
-		self.setup_mean()
-        # Empty variables to be defined in sub methods
-        # Usually these variables will become tensorflow
-        # variables
-
-        # self.annotation = None
-        # self.data_init = None
-        # self.data_init_test = None
-        # self.image = None
-        # self.image_bf_mean = None
-        # self.image_placeholder = None
-        # self.learning_rate = None
-        # self.loss = None
-        # self.mean_tensor = None
-        # self.merged_summaries = None
-        # self.merged_summaries_test = None
-        # self.metric_handler = None
-        # self.predictions = None
-        # self.optimizer = None
-        # self.score_recorder = None
-        # self.summary_writer = None
-        # self.summary_test_writer = None
-        # self.test_iterator = None
-        # self.training_op = None
-        # self.train_iterator = None
-        # self.test_iterator = None
-
-        # multi-class or binary
         self.list_metrics = metric_bundles_function(num_labels)
 
-        # Initializing models
+        tqdm.write("FAKE BATCH is only for the ResourceVariable that have the validate_shape ignored")
+        self.fake_batch = fake_batch
 
-        self.init_architecture(self.verbose)
-        self.evaluation_graph(self.list_metrics, self.verbose)
-        # self.init_training_graph()
-        self.saver = self.saver_object(self.training_variables, 3, self.verbose, 
-                                       self.log, restore=True)
+        # Preparing tensorflow variables
+        self.setup_mean()
+        self.rgb_v, self.lbl_v, self.rgb_ph, self.lbl_ph = self.setup_input_network()
+        self.probability, self.last = self.init_architecture(self.rgb_ph)
+        self.loss, self.predictions = self.evaluation_graph(self.last, self.lbl_ph)
+
+        self.saver = self.saver_object(self.log, 3, restore=True)
 
     def conv_layer_f(self, i_layer, s_input_channel, size_output_channel,
                      ks, strides=[1, 1, 1, 1], scope_name="conv", random_init=0.1, 
@@ -118,7 +100,7 @@ class SegmentationBaseClass:
         Performs drop out layer and checks if the seed is set
         """
         if self.seed:
-            seed = np.random.randint(MAX_INT)
+            seed = random.randint(MAX_INT)
         else: 
             seed = self.seed
         return ut.drop_out_layer(i_layer, keep_prob, scope, seed)
@@ -138,14 +120,14 @@ class SegmentationBaseClass:
         xavier initialization with 'random seed' if seed is set.
         """
         if self.seed:
-            seed = np.random.randint(MAX_INT)
+            seed = random.randint(MAX_INT)
         else:
             seed = self.seed
         weights = ut.weight_xavier(kernel, s_input_channel, 
                                    size_output_channel, seed=seed)
         return weights
 
-    def restore(self, saver, log, verbose=0):
+    def restore(self, saver, log):
         """
         restore the model
         if no log files exit, it re initializes the architecture variables
@@ -153,54 +135,68 @@ class SegmentationBaseClass:
         ckpt = tf.train.get_checkpoint_state(log)
         if ckpt and ckpt.model_checkpoint_path:
             saver.restore(self.sess, ckpt.model_checkpoint_path)
-            if verbose:
+            if self.verbose:
                 tqdm.write("model restored...")
         else:
-            if verbose:
+            if self.verbose:
                 tqdm.write("values have been initialized")
-            self.initialize_all()
+            self.init_uninit([])
+            # self.initialize_all()
 
-    def saver_object(self,  keep=3, verbose=0, restore=False):
+    def saver_object(self, log, keep=3, restore=False):
         """
         Defining the saver, it will load if possible.
         """
-        if verbose > 1:
+        if self.verbose > 1:
             tqdm.write("setting up saver...")
         saver = tf.train.Saver(self.training_variables, max_to_keep=keep)
         if log and restore:
-            self.restore(saver, self.log, verbose)
+            self.restore(saver, log)
         return saver
 
-    def setup_input_network(self):
+    # def setup_init(self):
+    #     """
+    #     Initialises everything that has not been initialized.
+    #     TODO: better initialization for data
+    #     """
+    #     with tf.name_scope("initialisation"):
+    #         extra_variables = []
 
-        with tf.name_scope('default_inputs'):
+    #         test_init = self.data_init_test is not None
+    #         train_init = self.data_init is not None
 
-            self.global_step = tf.Variable(0., name='global_step', trainable=False)
-            self.is_training = tf.placeholder_with_default(True, shape=[])
+    #         if train_init and test_init: 
+    #             init_op = tf.group(self.data_init, self.data_init_test)
+    #         elif train_init:
+    #             init_op = tf.group(self.data_init)
+    #         elif test_init:
+    #             init_op = tf.group(self.data_init_test)
+    #         else:
+    #             if self.verbose:
+    #                 tqdm.write("No data initialization possible")
+    #     # self.init_uninit(extra_variables)
+    #     self.sess.run(init_op)
 
-            input_shape = (None, None, None, self.num_channels)
-            label_shape = (None, None, None, 1)
+    # def initialize_all(self):
+    #     """
+    #     initialize all variables
+    #     """
+    #     self.sess.run(tf.global_variables_initializer())
 
-            rgb_default_shape = (1, self.image_size[0] + 2 * self.displacement, 
-            					 self.image_size[1] + 2 * self.displacement, 3)
-            lbl_default_shape = (1, self.image_size[0], self.image_size[1], 1)
-            default_input = np.zeros(shape=rgb_default_shape, dtype='float32')
-            default_label = np.zeros(shape=lbl_default_shape, dtype='float32')
+    def init_uninit(self, extra_variables):
+        ut.initialize_uninitialized_vars(self.sess, {self.is_training: False},
+                                         extra_variables)
 
-            self.inp_variable = tf.Variable(default_input, validate_shape=False, 
-                                            name="rgb_input")
-            self.lbl_variable = tf.Variable(default_label, validate_shape=False, 
-                                            name="lbl_input")
-            
-            self.input_node = tf.placeholder_with_default(self.inp_variable, shape=input_shape)
-            self.label_node = tf.placeholder_with_default(self.lbl_variable, shape=label_shape)
-     
-    def setup_mean(self):
+    @abstractmethod
+    def init_architecture(self):
         """
-        Adds mean substraction into the graph.
-        If you use the queues or the self.image placeholder
-        the mean will be subtracted automatically.
+        Sets the tensorflow graph associated to the network architecture.
         """
-        if self.mean_array is not None:
-            mean_tensor = tf.constant(mean_array, dtype=tf.float32)
-            self.mean_tensor = tf.reshape(mean_tensor, [1, 1, self.num_channels])
+        pass
+
+    @abstractmethod
+    def evaluation_graph(self, metrics):
+        """
+        Sets the tensorflow graph associated to the evaluation
+        """
+        pass

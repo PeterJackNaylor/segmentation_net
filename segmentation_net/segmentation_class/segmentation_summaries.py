@@ -1,33 +1,42 @@
+#!/usr/bin/env python
+# -*- coding: utf-8 -*-
+"""segnet package file tf_record
 
+Segmentation_base_class ->  SegmentationInput -> SegmentationCompile -> 
+SegmentationSummaries -> Segmentation_model_utils -> Segmentation_train
 
+"""
 
+from .segmentation_compile import *
 
-from base_class import *
+class SegmentationSummaries(SegmentationCompile):
+    def setup_summary(self, log, test_record):
+        """
+        Main member to setup summaries for tensorboard.
+        """
 
-class SegmentationSummaries(SegmentationBaseClass):
-
-	def setup_summary(self):
-		"""
-		Main member to setup summaries for tensorboard.
-		"""
         self.add_summary_images()
-        self.summary_writer = tf.summary.FileWriter(log + '/train', 
-                                                    graph=self.sess.graph)
-        self.merged_summaries = self.summarise_model()
-        self.merged_summaries_test = self.summarise_model(train=False)
+        summary_writer = tf.summary.FileWriter(log + '/train', graph=self.sess.graph)
+        merged_summaries = self.summarise_model()
+
         if test_record is not None:
-            self.summary_test_writer = tf.summary.FileWriter(log + '/test',
-                                                             graph=self.sess.graph)
+            merged_test_summaries = self.summarise_model(train=False)
+            summary_test_writer = tf.summary.FileWriter(log + '/test', graph=self.sess.graph)
+        else:
+            merged_test_summaries = None
+            summary_test_writer = None
+
+        return summary_writer, merged_summaries, summary_test_writer, merged_test_summaries
 
     def add_summary_images(self):
         """
         Image summary to add to the summary
         TODO Does not work with the cond in the network flow...
         """
-        input_s = tf.summary.image("input", self.input_node, max_outputs=3)
-        label_s = tf.summary.image("label", self.label_node, max_outputs=3)
-        pred = tf.expand_dims(tf.cast(self.predictions, tf.float32), dim=3)
-        prob = tf.expand_dims(tf.cast(tf.multiply(self.probability[:, :, :, 0], 255.), tf.float32), dim=3)
+        input_s = tf.summary.image("input", self.rgb_ph, max_outputs=3)
+        label_s = tf.summary.image("label", self.lbl_ph, max_outputs=3)
+        pred = tf.expand_dims(tf.cast(self.predictions, tf.float32), axis=3)
+        prob = tf.expand_dims(tf.cast(tf.multiply(self.probability[:, :, :, 0], 255.), tf.float32), axis=3)
         
         predi_s = tf.summary.image("pred", pred, max_outputs=3)
         probi_s = tf.summary.image("prob", prob, max_outputs=3)
@@ -36,7 +45,7 @@ class SegmentationSummaries(SegmentationBaseClass):
             self.test_summaries.append(__s)
 
 
-	def summarise_model(self, train=True):
+    def summarise_model(self, train=True):
         """
         Lists all summaries in one list that is then merged.
         """

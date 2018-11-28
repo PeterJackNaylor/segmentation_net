@@ -428,9 +428,13 @@ def _parse_function(example_proto, channels=3, height=212, width=212, displaceme
                                                    target_width=width)
     return img_a, lab_a
 
+
+map_and_batch = tf.data.experimental.map_and_batch
+shuffle_and_repeat = tf.data.experimental.shuffle_and_repeat
+
 def read_and_decode(filename_queue, image_height, image_width,
                     batch_size, num_parallel_batches, train=True, channels=3, 
-                    displacement=0, buffers=10, shuffle_buffer=10, seed=None):
+                    displacement=0, buffers=100, shuffle_buffer=10, seed=None, cache=True):
     """
     Read and decode data from a tfrecord to a tensorflow queue
     """
@@ -448,28 +452,23 @@ def read_and_decode(filename_queue, image_height, image_width,
         return _parse_function(x, channels, image_height, 
                                image_width, augment=False, 
                                displacement=displacement)
-    if train:
-        dataset = dataset.apply(tf.contrib.data.map_and_batch(
-                                    map_func=f_parse,
-                                    batch_size=batch_size,
-                                    num_parallel_batches=num_parallel_batches))
-                                    #drop_remainder=True
-    else:
-        dataset = dataset.apply(tf.contrib.data.map_and_batch(
-                                    map_func=not_f_parse,
-                                    batch_size=batch_size,
-                                    num_parallel_batches=num_parallel_batches))
-                                    #drop_remainder=True
-                                
-        
+
+    function = f_parse if train else not_f_parse
+
+    dataset = dataset.apply(map_and_batch(map_func=function,
+                                          batch_size=batch_size,
+                                          num_parallel_batches=num_parallel_batches,
+                                          drop_remainder=True)) 
+    # as the palce_with_default takes values from a mutable shape tensor, we have to ensure that batch are the same size.
 
     dataset = dataset.prefetch(buffer_size=buffers) 
-    #dataset = dataset.cache()
-    dataset = dataset.apply(tf.contrib.data.shuffle_and_repeat(
-                                shuffle_buffer,
-                                count=None,
-                                seed=seed))
+    if cache:
+        dataset = dataset.cache()
 
-    iterator = dataset.make_one_shot_iterator()
+    dataset = dataset.apply(shuffle_and_repeat(shuffle_buffer,
+                                               count=None,
+                                               seed=seed))
+
+    # iterator = dataset.make_one_shot_iterator()
     iterator = dataset.make_initializable_iterator()
     return iterator.initializer, iterator

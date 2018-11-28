@@ -16,21 +16,21 @@ from tqdm import tqdm
 
 
 from . import utils_tensorflow as ut
-from .segmentation_net import SegmentationNet
+from .pang_net import PangNet
 
 
-class Unet(SegmentationNet):
+class Unet(PangNet):
     """
     U-net implementation with same padding.
     """
     def __init__(self, image_size=(256, 256), log="/tmp/unet",
-                 num_channels=3, num_labels=2, tensorboard=True,
-                 seed=42, verbose=0, n_features=2, displacement=0, 
-                 padding_for_conv="SAME"):
+                 mean_array=None, num_channels=3, num_labels=2, 
+                 seed=42, verbose=0, n_features=2, 
+                 displacement=0, padding_for_conv="SAME", fake_batch=1):
         self.n_features = n_features
-        self.padding_for_conv = padding_for_conv
-        super(Unet, self).__init__(image_size, log, num_channels,
-                                   num_labels, tensorboard, seed, verbose, displacement)
+        self.padding_for_conv = "SAME"
+        super(Unet, self).__init__(image_size, log, mean_array, num_channels,
+                                   num_labels, seed, verbose, displacement, fake_batch)
 
     def conv_layer_f(self, i_layer, s_input_channel, size_output_channel,
                      ks, strides=[1, 1, 1, 1], scope_name="conv", random_init=0.1, 
@@ -133,18 +133,20 @@ class Unet(SegmentationNet):
     def logit_layer(self, input_, feat, num_labels, name="classification"):
         strides = [1, 1, 1, 1]
         with tf.name_scope(name):
-            self.last = self.conv_layer_f(input_, feat,
-                                          num_labels, 1, 
-                                          strides=strides,
-                                          scope_name="logit/")
-            self.probability = tf.nn.softmax(self.last, axis=-1)
+            last = self.conv_layer_f(input_, feat,
+                                     num_labels, 1, 
+                                     strides=strides,
+                                     scope_name="logit/")
+            probability = tf.nn.softmax(last, axis=-1)
+        return probability, last
 
-    def init_architecture(self, verbose):
+    def init_architecture(self, rgb_node):
         """
         Initialises variables for the graph
         """
 
-        self.block11 = self.double_conv(self.input_node, self.num_channels, 
+        input_network = self.subtract_mean(rgb_node)
+        self.block11 = self.double_conv(input_network, self.num_channels, 
                                         self.n_features, "block11")
         self.block21 = self.max_double_conv(self.block11[-1], self.n_features, 
                                             2*self.n_features, "block21")
@@ -166,21 +168,23 @@ class Unet(SegmentationNet):
         self.block12 = self.upsample_concat_double_conv(self.block22[-1], self.block11[-1], 
                                                         2*self.n_features, self.n_features,
                                                         "block12")
-        self.logit_layer(self.block12[-1], self.n_features, self.num_labels)
+        probability, last = self.logit_layer(self.block12[-1], self.n_features, self.num_labels)
 
-        if verbose > 1:
+        if self.verbose > 1:
             tqdm.write('model variables initialised')
+        return probability, last
 
 class UnetPadded(Unet):
     """
     U-net implementation with valid padding.
     """
     def __init__(self, image_size=(212, 212), log="/tmp/unet",
-                 num_channels=3, num_labels=2, tensorboard=True,
-                 seed=42, verbose=0, n_features=2):
+                 mean_array=None, num_channels=3, num_labels=2,
+                 seed=42, verbose=0, n_features=2, fake_batch=1):
         displacement = 92
         padding_for_conv = "VALID"
-        super(UnetPadded, self).__init__(image_size, log, num_channels,
-                                         num_labels, tensorboard, seed, 
-                                         verbose, n_features, displacement, 
-                                         padding_for_conv)
+        super(UnetPadded, self).__init__(image_size, log,
+                                         mean_array, num_channels,
+                                         num_labels, seed, verbose,
+                                         n_features, displacement,
+                                         padding_for_conv, fake_batch)
