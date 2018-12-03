@@ -59,7 +59,7 @@ class SegmentationCompile(SegmentationInput):
                                                       k,
                                                       staircase=True)
         if self.tensorboard:
-            s_lr = tf.summary.scalar("learning_rate", learning_rate)
+            s_lr = tf.summary.scalar("learning_rate", learning_rate_tf)
             self.additionnal_summaries.append(s_lr)
 
         return learning_rate_tf

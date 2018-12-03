@@ -15,13 +15,14 @@ from ..utils import merge_dictionnary
 class SegmentationModelUtils(SegmentationSummaries):
 
     def infer(self, train=True, tensor_rgb=None, tensor_lbl=None, keep_prob=False, metrics=False,
-              overrule_tensorboard=True, step=0, with_input=False, control=None):
+              overrule_tensorboard=True, step=0, with_input=False, control=None, extra_tensors=None,
+              extra_tensors_names=None):
         feed_dict = {self.is_training: train}
 
         if tensor_rgb is not None:
-            feed_dict[self.input_node] = tensor_rgb
+            feed_dict[self.rgb_ph] = tensor_rgb
             if tensor_lbl is not None:
-                feed_dict[self.label_node] = tensor_lbl
+                feed_dict[self.lbl_ph] = tensor_lbl
 
         tensors_names = []
         tensors_to_get = []
@@ -39,6 +40,11 @@ class SegmentationModelUtils(SegmentationSummaries):
             tensors_names += ["input_rgb", "input_lbl"]
             tensors_to_get += [self.rgb_ph, self.lbl_ph]
 
+        if extra_tensors:
+            tensors_to_get += extra_tensors
+            if not extra_tensors_names:
+                extra_tensors_names= ["extra_input_{}".format(i) for i in range(len(extra_tensors))]
+            tensors_names += extra_tensors_names
 
         if overrule_tensorboard:
             if self.tensorboard:
@@ -145,8 +151,53 @@ class SegmentationModelUtils(SegmentationSummaries):
 
         dic_step = self.infer(train=False, tensor_rgb=tensor, tensor_lbl=label, 
                               keep_prob=True, metrics=metrics, overrule_tensorboard=False)
-
+        dic_step 
+        for name, value in sorted(dic_step.items()):
+            if not np.isscalar(value):
+                dic_step[name] = value[0]
         return dic_step
+
+    def predict_record(self, record, extra_tensors=None, extra_tensors_names=None, 
+                       init_queues=True, length=None, inputs=False, batch_size=1,
+                       num_parallele_batch=1, to_control=None, keep_prob=True,
+                       metrics=True):
+
+        if init_queues:
+            image_out, anno_out = self.setup_queues(record, None, 
+                                                    batch_size, num_parallele_batch)
+            assign_rgb_to_queue = tf.assign(self.rgb_v, image_out, 
+                                            validate_shape=False)
+            assign_lbl_to_queue = tf.assign(self.lbl_v, anno_out, 
+                                            validate_shape=False)
+            assign_to_variable = [assign_rgb_to_queue, assign_lbl_to_queue]
+            if to_control:
+                tqdm.write("Overwritting to_control variable as initialising queue")
+            to_control = tf.tuple(assign_to_variable, control_inputs=[image_out, anno_out])
+            self.init_uninit([])
+            blank = tf.tuple([self.is_training], name=None, control_inputs=to_control)
+            self.sess.run(blank)
+
+        if not length:
+            length = ut.record_size(record) // batch_size
+
+        dic = {}
+
+        for _ in range(length):
+            dic_step = self.infer(train=False, tensor_rgb=None, tensor_lbl=None,
+                                  keep_prob=keep_prob, metrics=metrics, overrule_tensorboard=False, 
+                                  step=-1, control=to_control, with_input=inputs, extra_tensors=extra_tensors,
+                                  extra_tensors_names=extra_tensors_names)
+            first = False
+            dic = merge_dictionnary(dic, dic_step)
+
+        if self.verbose:
+            msg = "    test : "
+            for name, value in sorted(dic.items()):
+                if np.isscalar(value[0]):
+                    value = np.mean(value)
+                    msg += "{} : {:.5f}  ".format(name, value)
+            tqdm.write(msg)   
+        return dic  
 
 # this was in infer_test_set 
         # import matplotlib.pylab as plt

@@ -131,6 +131,8 @@ class ExampleDatagen(DataGeneratorTemplate):
             x_e, y_e = 512, 512
         return image[x_b:x_e, y_b:y_e]
 
+
+
 class ExampleUNetDatagen(ExampleDatagen):
     """
     Differences: UNet, in the situation of the UNet you feed in 

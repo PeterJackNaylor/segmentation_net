@@ -96,7 +96,6 @@ class DistanceUnet(BatchNormedUnet):
                 self.metric_handler = self.tf_compute_metrics(lbl_lbl, lbl_pred, 
                                                               self.list_metrics)
         
-        #tf.global_variables_initializer().run()
         if self.verbose > 1:
             tqdm.write('computational graph initialised')
 

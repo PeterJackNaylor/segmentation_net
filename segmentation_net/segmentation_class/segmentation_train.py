@@ -35,7 +35,7 @@ class SegmentationTrain(SegmentationModelUtils):
               save_weights=True, new_log=None, 
               num_parallele_batch=8, restore=False, 
               track_variable="loss", track_training=False,
-              tensorboard=True, restore_best=False):
+              tensorboard=True, return_best=False):
         """
         Train the model
         restore allows to re-initializing the variable as log will be empty.
@@ -73,10 +73,15 @@ class SegmentationTrain(SegmentationModelUtils):
                 lrs = self.learning_rate_scheduler(learning_rate, k, lr_procedure,
                                                    steps_in_epoch)
                 if self.verbose:
-                    tqdm.write("learning_rate_scheduler NOT WORKING")
-                    tqdm.write("learning_rate_scheduler implemented")
+                    msg = "learning_rate_scheduler added \
+with initial_value = {}, k = {} \
+and decrease every = {}"
+                    tqdm.write(msg.format(learning_rate, k, lr_procedure))
+                    self.learning_rate = lrs
         else:
             lrs = learning_rate
+            if self.verbose:
+                tqdm.write("Learning_rate fixed to :{}".format(lrs))
 
         if self.tensorboard:
             sw, ms, stw, mts = self.setup_summary(new_log, test_record)
@@ -92,7 +97,6 @@ class SegmentationTrain(SegmentationModelUtils):
             with tf.name_scope('regularization'):
                 self.loss = self.regularize_model(self.loss, loss_func, weight_decay)
                 if self.verbose:
-                    tqdm.write("CAN'T FIND REGULARIZATION in graph")
                     tqdm.write('regularization weight decay added: {}'.format(weight_decay))
 
         with tf.name_scope('optimization'):
@@ -100,7 +104,9 @@ class SegmentationTrain(SegmentationModelUtils):
 
         if decay_ema != 0 and decay_ema is not None:
             with tf.name_scope('exponential_moving_average'):
-                training_op = self.exponential_moving_average(opt, self.training_variables, decay_ema)
+                training_op = self.exponential_moving_average(opt,
+                                                              self.training_variables,
+                                                              decay_ema)
                 if self.verbose:
                     tqdm.write("Exponential moving average added to prediction")
         else:
@@ -121,14 +127,12 @@ class SegmentationTrain(SegmentationModelUtils):
             assign_to_variable = [assign_rgb_to_queue, assign_lbl_to_queue]
         
             to_control = tf.tuple(assign_to_variable, control_inputs=[image_out, anno_out])
-            # to_control_train = tf.tuple(assign_to_variable + [lrs], control_inputs=[image_out, anno_out])
             blank = tf.tuple([self.is_training], name=None, control_inputs=to_control)
             train_op = tf.tuple([training_op], name=None, control_inputs=to_control)
 
         self.init_uninit([])
 
-        tqdm.write("NO REINITIALIZE GLOBAL STEP")
-        begin_iter = int(self.global_step.eval())
+        begin_iter = 0
         begin_epoch = begin_iter // steps_in_epoch
         last_epoch = begin_epoch + n_epochs
         last_iter = max_steps + begin_iter
@@ -139,7 +143,6 @@ class SegmentationTrain(SegmentationModelUtils):
 
         for step in range_:
             self.sess.run(train_op)
-            #     tqdm.write("WARNING.... RECORDING EVERY STEP")
             if (step - begin_epoch + 1) % steps_in_epoch == 0 and (step - begin_epoch) != 0:
                 # If we are at the end of an epoch
                 epoch_number = step // steps_in_epoch
@@ -170,7 +173,7 @@ class SegmentationTrain(SegmentationModelUtils):
                         break
         if test_record:
             self.score_recorder.save_best(track_variable, save_weights)
-        if restore_best:
+        if return_best:
             tqdm.write("restore_best NOT IMPLEMENTED")
         return self.score_recorder.all_tables()
 
