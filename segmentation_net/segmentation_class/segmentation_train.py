@@ -16,8 +16,21 @@ from .segmentation_model_utils import *
 
 
 def verbose_range(beg, end, word, verbose, verbose_thresh):
-    """
+    """Monitores the time in range with tqdm
+
     If verbose, use tqdm to take care of estimating end of training.
+
+    Args:
+        beg: integer, where to start iterating
+        end: integer, where to end iteration (not included)
+        word: string, to print in the displayed progress_bar
+        verbose: integer, value of verbose given mostlikely by the object himself
+        verbose_thresh: integer, will display progress bar if verbose > verbose_thresh
+
+    Returns:
+        An object on which you can iterate that can or not, depending
+        on the value of verbose print a progress bar to the stdoutput.
+
     """
     returned_range = None
     if verbose > verbose_thresh:
