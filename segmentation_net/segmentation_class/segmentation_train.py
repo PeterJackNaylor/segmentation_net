@@ -69,7 +69,7 @@ class SegmentationTrain(SegmentationModelUtils):
         if not stop_early:
             early_stopping = 0
 
-        if early_stopping in [0, 3]:
+        if early_stopping not in [0, 3]:
             ## this saver is to ensure that we can restore to the best weights at the end
             self.saver = self.saver_object(keep=early_stopping + 1, 
                                            log=new_log,
