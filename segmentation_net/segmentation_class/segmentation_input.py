@@ -23,7 +23,7 @@ class SegmentationInput(SegmentationBaseClass):
                                       self.image_size[1],
                                       batch_size,
                                       num_parallele_batch,
-                                      channels=self.channels,
+                                      channels=self.num_channels,
                                       displacement=self.displacement,
                                       seed=self.seed)
                 data_init, train_iterator = out
@@ -43,7 +43,7 @@ class SegmentationInput(SegmentationBaseClass):
                                       batch_size,
                                       num_parallele_batch,
                                       train=False,
-                                      channels=self.channels,
+                                      channels=self.num_channels,
                                       displacement=self.displacement,
                                       buffers=10,
                                       shuffle_buffer=1,
