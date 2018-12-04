@@ -401,7 +401,7 @@ def _parse_function(example_proto, channels=3, height=212, width=212, displaceme
     const_img_height = height + 2 * displacement
     const_img_width = width + 2 * displacement
 
-    image = tf.decode_raw(features['image_raw'], tf.uint8)
+    image = tf.decode_raw(features['image_raw'], tf.float32)
     annotation = tf.decode_raw(features['mask_raw'], tf.uint8)        
         
     image_shape = tf.stack([height_img, width_img, channels])
