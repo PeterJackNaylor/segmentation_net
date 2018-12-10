@@ -169,14 +169,14 @@ class SegmentationModelUtils(SegmentationSummaries):
                     ut.add_value_to_summary(np.mean(value), name, self.summary_test_writer,
                                             step, tag="evaluation")
 
+        msg = "    test : "
+        for name, value in sorted(dic.items()):
+            if np.isscalar(value[0]):
+                value = np.mean(value)
+                if during_training:
+                    dic[name] = value
+                msg += "{} : {:.5f}  ".format(name, value)
         if self.verbose:
-            msg = "    test : "
-            for name, value in sorted(dic.items()):
-                if np.isscalar(value[0]):
-                    value = np.mean(value)
-                    msg += "{} : {:.5f}  ".format(name, value)
-                    if during_training:
-                        dic[name] = value
             tqdm.write(msg)   
         return dic
 
