@@ -411,15 +411,14 @@ def _parse_function(example_proto, channels=3, height=212, width=212,
     image = tf.reshape(image, image_shape)
     annotation = tf.reshape(annotation, annotation_shape)
 
-    image_f = tf.cast(image, tf.float32)
-    annotation_f = tf.cast(annotation, tf.float32)
-    if augment and displacement:
-        img_a, lab_a = augment_data(image_f, annotation_f, channels)
+    img_a = tf.cast(image, tf.float32)
+    lab_a = tf.cast(annotation, tf.float32)
+    
+    if augment:
+        img_a, lab_a = augment_data(img_a, lab_a, channels)
+    if displacement:
         lab_a = lab_a[displacement:-displacement, displacement:-displacement]
-    elif augment:
-        img_a, lab_a = augment_data(image_f, annotation_f, channels)
-    else:
-        img_a, lab_a = image_f, annotation_f
+    
     img_a = tf.image.resize_image_with_crop_or_pad(image=img_a,
                                                    target_height=const_img_height,
                                                    target_width=const_img_width)

@@ -28,7 +28,7 @@ class Unet(PangNet):
                  seed=42, verbose=0, n_features=2, 
                  displacement=0, padding_for_conv="SAME", fake_batch=1):
         self.n_features = n_features
-        self.padding_for_conv = "SAME"
+        self.padding_for_conv = padding_for_conv
         super(Unet, self).__init__(image_size, log, mean_array, num_channels,
                                    num_labels, seed, verbose, displacement, fake_batch)
 
