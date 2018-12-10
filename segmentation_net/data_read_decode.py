@@ -380,7 +380,8 @@ def augment_data(image_f, annotation_f, channels=3):
         return image_f, annotation_f
 
 
-def _parse_function(example_proto, channels=3, height=212, width=212, displacement=0, augment=True):
+def _parse_function(example_proto, channels=3, height=212, width=212, 
+                    displacement=0, augment=True, decode=tf.float32):
     """
     Function for deserializing the data from a tfrecord.
     We after ensure that the data has the given size and it can perform random augmentations.
@@ -401,7 +402,7 @@ def _parse_function(example_proto, channels=3, height=212, width=212, displaceme
     const_img_height = height + 2 * displacement
     const_img_width = width + 2 * displacement
 
-    image = tf.decode_raw(features['image_raw'], tf.float32)
+    image = tf.decode_raw(features['image_raw'], decode)
     annotation = tf.decode_raw(features['mask_raw'], tf.uint8)        
         
     image_shape = tf.stack([height_img, width_img, channels])
@@ -445,14 +446,16 @@ def read_and_decode(filename_queue, image_height, image_width,
         parse function for training. Implies augmentation.
         """
         return _parse_function(x, channels, image_height,
-                               image_width, displacement=displacement)
+                               image_width, displacement=displacement,
+                               decode=decode)
     def not_f_parse(x):
         """
         parse function for training. Implies no augmentation.
         """
         return _parse_function(x, channels, image_height, 
                                image_width, augment=False, 
-                               displacement=displacement)
+                               displacement=displacement,
+                               decode=decode)
 
     function = f_parse if train else not_f_parse
 
