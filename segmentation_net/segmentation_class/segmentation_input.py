@@ -12,32 +12,55 @@ from .segmentation_base_class import *
 
 class SegmentationInput(SegmentationBaseClass):
 
-    def init_queue_train(self, train, batch_size, num_parallele_batch):
-        """
-        New queues for coordinator
+    def init_queue_train(self, train_record, batch_size, num_parallele_batch, decode):
+        """ Builds training queue for the network.
+
+        Args:
+            train_record: string, path to a tensorflow record file for training.
+            batch_size : integer, size of batch to be feeded at each 
+                         iterations.
+            num_parallele_batch : integer, number of workers to use to 
+                                  perform paralelle computing.
+            decode: tensorflow function (default: tf.float32) how to decode the bytes in
+                    the tensorflow records for the input rgb data.
+        Returns:
+            A tuple, tensorflow initializer and tensorlfow iterator.
+
         """
         with tf.device('/cpu:0'):
             with tf.name_scope('training_queue'):
-                out = read_and_decode(train, 
+                out = read_and_decode(train_record, 
                                       self.image_size[0], 
                                       self.image_size[1],
                                       batch_size,
                                       num_parallele_batch,
                                       channels=self.num_channels,
                                       displacement=self.displacement,
-                                      seed=self.seed)
+                                      seed=self.seed,
+                                      decode=decode)
                 data_init, train_iterator = out
         if self.verbose > 1:
             tqdm.write("train queue initialized")
         return data_init, train_iterator
 
-    def init_queue_test(self, test, batch_size, num_parallele_batch):
-        """
-        New queues for coordinator
+    def init_queue_test(self, test_record, batch_size, num_parallele_batch, decode):
+        """ Builds testing queue for the network.
+
+        Args:
+            train_record: string, path to a tensorflow record file for training.
+            batch_size : integer, size of batch to be feeded at each 
+                         iterations.
+            num_parallele_batch : integer, number of workers to use to 
+                                  perform paralelle computing.
+            decode: tensorflow function (default: tf.float32) how to decode the bytes in
+                    the tensorflow records for the input rgb data.
+        Returns:
+            A tuple, tensorflow initializer and tensorlfow iterator.
+
         """
         with tf.device('/cpu:0'):
             with tf.name_scope('testing_queue'):
-                out = read_and_decode(test, 
+                out = read_and_decode(test_record, 
                                       self.image_size[0], 
                                       self.image_size[1],
                                       batch_size,
@@ -47,7 +70,8 @@ class SegmentationInput(SegmentationBaseClass):
                                       displacement=self.displacement,
                                       buffers=10,
                                       shuffle_buffer=1,
-                                      seed=self.seed)
+                                      seed=self.seed,
+                                      decode=decode)
                 data_init_test, test_iterator = out
             
         if self.verbose > 1:
@@ -55,9 +79,16 @@ class SegmentationInput(SegmentationBaseClass):
         return data_init_test, test_iterator
 
     def init_queue_node(self, train_iterator, test_iterator):
-        """
-        The input node can now come from the record or can be inputed
-        via a feed dict (for testing for example)
+        """ Builds testing queue for the network. Train_iterator 
+            and test_iterator can be None and will therefore be ignored.
+
+        Args:
+            train_iterator : tensorflow iterator for training.
+            test_iterator : tensorflow iterator for testing.
+        Returns:
+            Tuple of tensorflow variables, one for the raw input and one
+            for the annoations. 
+
         """
         def f_true():
             """
@@ -93,21 +124,37 @@ class SegmentationInput(SegmentationBaseClass):
         return image_outqueue, annotation_outqueue
 
     def setup_queues(self, train_record=None, test_record=None, batch_size=1, 
-                    num_parallele_batch=8):
-        """
-        Setting up data feed queues
+                    num_parallele_batch=8, decode=tf.float32):
+        """Setting up data queues for the model. If train, or test_record is None
+           they will be ignored.
+
+        Args:
+            train_record: string (default: None), path to a tensorflow record file for training.
+            test_record: string (default: None), if given, the model will be evaluated on 
+                         the test data at every epoch.
+            batch_size : integer (default: 1) Size of batch to be feeded at each 
+                         iterations.
+            num_parallele_batch : integer (default: 8) number of workers to use to 
+                                  perform paralelle computing.
+            decode: tensorflow function (default: tf.float32) how to decode the bytes in
+                    the tensorflow records for the input rgb data.
+        Returns:
+            Tuple of tensorflow variables, one for the raw input and one
+            for the annoations. 
         """
         to_init = []
 
         if train_record is not None:
-            dtrain_init, train_iterator = self.init_queue_train(train_record, batch_size, num_parallele_batch)
+            dtrain_init, train_iterator = self.init_queue_train(train_record, batch_size, 
+                                                                num_parallele_batch, decode)
             to_init.append(dtrain_init)
         else:
             train_iterator = None
 
 
         if test_record is not None:
-            dtest_init, test_iterator = self.init_queue_test(test_record, batch_size, num_parallele_batch)
+            dtest_init, test_iterator = self.init_queue_test(test_record, batch_size, 
+                                                             num_parallele_batch, decode)
             to_init.append(dtest_init)
         else:
             test_iterator = None
@@ -123,7 +170,17 @@ class SegmentationInput(SegmentationBaseClass):
         return image_out, anno_out
 
     def setup_input_network(self):
+        """ Magical function that creates both for the raw input and annotation input
+        two tensorflow object, one placeholder that will be the variable for manual 
+        feeding of data and one tensorflow variable that will be assigned the value of
+        the queues that will be linked to it. In such a case, the place holder will take
+        as default value the value of this tensorflow variable.
 
+        Returns:
+            Four tensorflow objecs, raw input variable, annotation input variable,
+            raw input placeholder, annotation input placeholder.
+
+        """
         with tf.name_scope('default_inputs'):
 
             self.global_step = tf.Variable(0., name='global_step', trainable=False)
@@ -174,6 +231,12 @@ class SegmentationInput(SegmentationBaseClass):
     def subtract_mean(self, variable):
         """
         Performs tensorflow operations to subtract mean if this one is available.
+
+        Args:
+            variable : tensorflow variable on which we will perform mean substraction if available.
+
+        Returns:
+            The variable given in input minus (if defined) the mean tensor.
         """
         with tf.name_scope('mean_subtraction'):
             if self.mean_array is not None:

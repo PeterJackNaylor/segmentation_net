@@ -11,10 +11,18 @@ from .segmentation_compile import *
 
 class SegmentationSummaries(SegmentationCompile):
     def setup_summary(self, log, test_record):
-        """
-        Main member to setup summaries for tensorboard.
-        """
+        """ Creates tensorflow summary writters that will
+        write their output to log. And if test_record is given
+        write also the test metrics.
 
+        Args:
+            log: string, where to writte the summaries.
+            test_record: string, if not none will prepare the test
+                         summary writter.
+        Returns:
+            The summary tensorflow object and the merged summaries to call
+            during the session. Optionnaly with the test summaries.
+        """
         self.add_summary_images()
         summary_writer = tf.summary.FileWriter(log + '/train', graph=self.sess.graph)
         merged_summaries = self.summarise_model()
@@ -29,10 +37,11 @@ class SegmentationSummaries(SegmentationCompile):
         return summary_writer, merged_summaries, summary_test_writer, merged_test_summaries
 
     def add_summary_images(self):
+        """ 
+        Adds the image summaries to the attribute additionnal_summaries
+        and test_summaries where they will be collected by the summary manager.
         """
-        Image summary to add to the summary
-        TODO Does not work with the cond in the network flow...
-        """
+
         input_s = tf.summary.image("input", self.rgb_ph, max_outputs=3)
         label_s = tf.summary.image("label", self.lbl_ph, max_outputs=3)
         pred = tf.expand_dims(tf.cast(self.predictions, tf.float32), axis=3)
@@ -48,6 +57,14 @@ class SegmentationSummaries(SegmentationCompile):
     def summarise_model(self, train=True):
         """
         Lists all summaries in one list that is then merged.
+        Args:
+            train: bool, wether you are training or not.
+        Returns:
+            A list of summaries merged in a tensorflow object 
+            respective if it is training or not. 
+
+        If not training, the summaries do not include the gradients,
+        the histogrammes and the activations.
         """
         if train:
             summaries = [ut.add_to_summary(var) for var in self.var_to_summarise]

@@ -434,7 +434,8 @@ shuffle_and_repeat = tf.data.experimental.shuffle_and_repeat
 
 def read_and_decode(filename_queue, image_height, image_width,
                     batch_size, num_parallel_batches, train=True, channels=3, 
-                    displacement=0, buffers=100, shuffle_buffer=10, seed=None, cache=True):
+                    displacement=0, buffers=100, shuffle_buffer=10, seed=None, 
+                    decode=tf.float32, cache=True):
     """
     Read and decode data from a tfrecord to a tensorflow queue
     """

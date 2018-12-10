@@ -48,13 +48,56 @@ class SegmentationTrain(SegmentationModelUtils):
               save_weights=True, new_log=None, 
               num_parallele_batch=8, restore=False, 
               track_variable="loss", track_training=False,
-              tensorboard=True, return_best=False):
-        """
-        Train the model
-        restore allows to re-initializing the variable as log will be empty.
-        Any parameter set to 0 or None is ignored.
-        """
+              tensorboard=True, return_best=False, decode=tf.float32):
+        """ Trains the model on train record, optionnaly you can monitor
+        the training by evaluation the test record
 
+        Args:
+            train_record: string, path to a tensorflow record file for training.
+            test_record: string or None, if given, the model will be evaluated on 
+                         the test data at every epoch.
+            learning_rate: float (default: 0.001) Initial learning rate for the 
+                           gradient descent update.
+            lr_procedure : string (default: 10epoch) Will be perfome learning rate
+                           decay every 10 epochs.
+            weight_decay : float (default: 0.0005) Initial value given to the weight
+                           decay, the loss is computed: 
+                           loss = loss + weight_decay * sum(loss_func(W)) where W are
+                           training parameters of the model.
+            batch_size : integer (default: 1) Size of batch to be feeded at each 
+                         iterations.
+            decay_ema : float (default: 0) if 0: ignored
+                        exponential moving average decay parameter to apply to weights 
+                        over time for more robust convergence.
+            k : float (default: 0.96) value by which the learning rate decays every 
+                      update.
+            n_epochs : integer (default: 10) number of epochs to perform
+            early_stopping : integer, if 0 or None ignored, else the model will stop
+                             training if the tracked variable doesn't go in the right 
+                             direction in under early_stopping epochs.
+            loss_func : tensorflow function (default: l2_loss) to apply on the weights
+                        for the weight decay in the loss function.
+            save_weights : bool (default: True) If to store the weigths
+            new_log : string (default: None) if to save the model in a different folder
+                      then the one from which the variables were restored.
+            num_parallele_batch : integer (default: 8) number of workers to use to 
+                                  perform paralelle computing.
+            restore : bool (default: False) if too restore from the new_log given.
+            track_variable : str (default: loss) which variable to track in order to
+                             perform early stopping.
+            track_training : bool (default: True) if to track track_variable on the 
+                             training data or on the test data.
+            tensorboard : bool (default: True) if to monitor the model via tensorboard.
+            return_best : bool (default: True) if to return the best model in case of early
+                          stopping or if there is a better possible model with respect to 
+                          the test set.
+            decode: tensorflow function (default: tf.float32) how to decode the bytes in
+                    the tensorflow records for the input rgb data.
+
+        Returns:
+            An python dictionnary recaping the training and if present the test history.
+
+        """
         steps_in_epoch = ut.record_size(train_record) // batch_size
         test_steps = ut.record_size(test_record) //batch_size if test_record is not None else None
         max_steps = steps_in_epoch * n_epochs
@@ -127,7 +170,8 @@ and decrease every = {}"
 
         with tf.name_scope('input_from_queue'):
             image_out, anno_out = self.setup_queues(train_record, test_record, 
-                                                    batch_size, num_parallele_batch)
+                                                    batch_size, num_parallele_batch, 
+                                                    decode=decode)
 
             # To plug in the queue to the main graph
         # with tf.control_dependencies([image_out, anno_out]):

@@ -17,6 +17,36 @@ class SegmentationModelUtils(SegmentationSummaries):
     def infer(self, train=True, tensor_rgb=None, tensor_lbl=None, keep_prob=False, metrics=False,
               overrule_tensorboard=True, step=0, with_input=False, control=None, extra_tensors=None,
               extra_tensors_names=None):
+        """ Performs a step of inferences with the active session.
+
+        Args:
+            train: bool (default: True) value to set the attribute self.is_training
+                   during inference, useful for controling dropout, batchnormalization...
+            tensor_rgb : tensorflow tensor (default: None), tensor_rgb to feed in, if None
+                         it will take the input from the queue.
+            tensor_lbl : tensorflow tensor (default: None), tensor_lbl to feed in, if None
+                         it will take the input from the queue.
+            keep_prob : bool (default: False) Whether to include or not the probabilities 
+                        of the predictions in the output dictionnary.
+            metrics : bool (default: False) Whether to include or not the computed metrics
+                      of the model in the output dictionnary.
+            overrule_tensorboard : bool (default: True) If true, the inference will be recorded
+                                   if self.tensorboard is true, else no recording.
+            step : integer (default: 0), the tag to which save the model checkpoints for the 
+                   tensorboard, this parameters is ignored if tensorboard is not activated.
+            with_input : bool (default: False) Whether to include or not the input in the 
+                         output dictionnary.
+            control : list of tensors (default: None) All the tensors in the list
+                      will be computed before inference.
+            extra_tensors : list of tensors (default: None) Adds these tensors to the output
+                            dictionnary.
+            extra_tensors_names : list of strings (default: None) The names of the added tensors
+                                  with extra_tensors, if none and extra_tensors provided automatic
+                                  names will be generated.
+        Returns:
+            A dictionnary with a list of keys that our the results of the inputs given to the session.
+
+        """
         feed_dict = {self.is_training: train}
 
         if tensor_rgb is not None:
@@ -75,6 +105,18 @@ class SegmentationModelUtils(SegmentationSummaries):
         return out_dic
 
     def infer_train_step(self, step=0, control=None):
+        """ Performs a step of inferences on the training data for an estimation
+            of the performance on a training batch.
+        Args:
+            step : integer (default: 0), the tag to which save the model checkpoints for the 
+                   tensorboard, this parameters is ignored if tensorboard is not activated.
+            control : list of tensors (default: None) All the tensors in the list
+                      will be computed before inference.
+        Returns:
+            A dictionnary with a list of keys that our the results of the inputs given to the session.
+            The keys are the metrics used in the model.
+
+        """
         dic_step = self.infer(train=True, tensor_rgb=None, tensor_lbl=None, 
                               keep_prob=False, metrics=True, overrule_tensorboard=True, 
                               step=step, control=control)
@@ -92,12 +134,31 @@ class SegmentationModelUtils(SegmentationSummaries):
 
         return dic_step 
 
-    def infer_test_set(self, step, n_test, probability=False, during_training=False, control=None): 
+    def infer_test_set(self, step, n_test, keep_prob=False, during_training=False, control=None):
+        """ Performs many steps of inferences on the full test data for an estimation
+            of the performance on a training batch.
+        Args:
+            step : integer (default: 0), the tag to which save the model checkpoints for the 
+                   tensorboard, this parameters is ignored if tensorboard is not activated.
+            n_test : integer, number of steps to perform in order to complete a full estimation
+                     over the test set.
+            keep_prob : bool (default: False) Whether to include or not the probabilities 
+                        of the predictions in the output dictionnary.
+            during_training: bool (default: False) If it is during training, we need to average
+                             the n_test prediction of the metrics so that we can feed it to the 
+                             metric handler.
+            control : list of tensors (default: None) All the tensors in the list
+                      will be computed before inference.
+        Returns:
+            A dictionnary with a list of keys that our the results of the inputs given to the session.
+            The keys are the metrics used in the model.
+
+        """ 
         dic = {}
         first = True
         for _ in range(n_test):
             dic_step = self.infer(train=False, tensor_rgb=None, tensor_lbl=None,
-                                  keep_prob=probability, metrics=True, overrule_tensorboard=first, 
+                                  keep_prob=keep_prob, metrics=True, overrule_tensorboard=first, 
                                   step=step, control=control)
             first = False
             dic = merge_dictionnary(dic, dic_step)
@@ -121,9 +182,20 @@ class SegmentationModelUtils(SegmentationSummaries):
 
 
     def predict_list(self, list_rgb, list_lbl=None):
-        """
-        Predict from list of rgb files.
-        """
+        """ Infer the probability and the predictioon output of each element in list_rgb.
+
+        Args:
+            list_rgb : list of numpy array of size matching those of the models. 
+                       Each element of list_rgb will be infered.
+            list_lbl : list of numpy array of size matching those of the models.
+                       If provided, the output will also include the metrics computed
+                       between the predicted output and the true outputs.
+        Returns:
+            A dictionnary with a list of keys that are the results of the inputs given to the session.
+            In particular the probabilities and predictions of each element of list_rgb. If list_lbl is provided, in 
+            addition to the others, the metrics used in the model are included.
+
+        """ 
 
         if list_lbl is None:
             list_lbl = [None for el in list_rgb]
@@ -136,10 +208,19 @@ class SegmentationModelUtils(SegmentationSummaries):
         return dic_res
 
     def predict(self, rgb, label=None):
-        """
-        It will predict and return a dictionnary of results
-        """
+        """ Infers the probability and the prediction of rgb.
+        Args:
+            rgb : numpy array of size matching those of the models. 
+                  rgb will be infered.
+            list_lbl : numpy array of size matching those of the models.
+                       If provided, the output will also include the metrics computed
+                       between the predicted output and the true outputs.
+        Returns:
+            A dictionnary with a list of keys that are the results of the inputs given to the session.
+            In particular the probabilities and predictions of rgb. If lbl is provided, in 
+            addition to the others, the metrics used in the model are included.
 
+        """ 
 
         tensor = np.expand_dims(rgb, 0)
         metrics = False
@@ -151,18 +232,48 @@ class SegmentationModelUtils(SegmentationSummaries):
 
         dic_step = self.infer(train=False, tensor_rgb=tensor, tensor_lbl=label, 
                               keep_prob=True, metrics=metrics, overrule_tensorboard=False)
-        dic_step 
         for name, value in sorted(dic_step.items()):
             if not np.isscalar(value):
                 dic_step[name] = value[0]
         return dic_step
 
-    def predict_record(self, record, extra_tensors=None, extra_tensors_names=None, 
-                       init_queues=True, length=None, inputs=False, batch_size=1,
-                       num_parallele_batch=1, to_control=None, keep_prob=True,
+    def predict_record(self, record=None, extra_tensors=None, extra_tensors_names=None, 
+                       init_queues=True, length=None, with_input=False, batch_size=1,
+                       num_parallele_batch=1, control=None, keep_prob=True,
                        metrics=True):
+        """ Infers the probabilities and the predictions of a whole record.
+        Args:
+            record : string (default: None) record to infer, if not specified the model
+                     will try and pull the test set from the already initialized queues.
+            extra_tensors : list of tensors (default: None) Adds these tensors to the output
+                            dictionnary.
+            extra_tensors_names : list of strings (default: None) The names of the added tensors
+                                  with extra_tensors, if none and extra_tensors provided automatic
+                                  names will be generated.
+            init_queues : bool (default: True) Whether to init queues, if no queues have been 
+                          initialized this will fail.
+            length : integer (default: None) number of steps to perform which should be 
+                     the number steps needed to complete a full evaluation of the record.
+                     If None, length will computed via the size of the record and the batch size.
+            with_input : bool (default: False) Whether to include or not the input in the 
+                         output dictionnary. 
+            batch_size : integer (default: 1) Size of batch to be feeded at each 
+                         iterations.
+            num_parallele_batch : integer (default: 8) number of workers to use to 
+                                  perform paralelle computing.
+            control : list of tensors (default: None) All the tensors in the list
+                      will be computed before inference.
+            keep_prob : bool (default: False) Whether to include or not the probabilities 
+                        of the predictions in the output dictionnary.
+            metrics : bool (default: False) Whether to include or not the computed metrics
+                      of the model in the output dictionnary.
+        Returns:
+            A dictionnary with a list of keys that are the results of the inputs given to the session.
+            In particular the probabilities and predictions of rgb. If lbl is provided, in 
+            addition to the others, the metrics used in the model are included.
 
-        if init_queues:
+        """
+        if record and init_queues:
             image_out, anno_out = self.setup_queues(record, None, 
                                                     batch_size, num_parallele_batch)
             assign_rgb_to_queue = tf.assign(self.rgb_v, image_out, 
@@ -185,7 +296,7 @@ class SegmentationModelUtils(SegmentationSummaries):
         for _ in range(length):
             dic_step = self.infer(train=False, tensor_rgb=None, tensor_lbl=None,
                                   keep_prob=keep_prob, metrics=metrics, overrule_tensorboard=False, 
-                                  step=-1, control=to_control, with_input=inputs, extra_tensors=extra_tensors,
+                                  step=-1, control=control, with_input=with_input, extra_tensors=extra_tensors,
                                   extra_tensors_names=extra_tensors_names)
             first = False
             dic = merge_dictionnary(dic, dic_step)
