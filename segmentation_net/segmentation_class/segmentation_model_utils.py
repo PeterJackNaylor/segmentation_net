@@ -4,7 +4,7 @@
 
 Segmentation_base_class ->  SegmentationInput -> SegmentationCompile -> 
 SegmentationSummaries -> Segmentation_model_utils -> Segmentation_train
-
+TODO CHECK SIZE OF PROBABILITY, IT CAME OUT AS 1800 1800 1
 """
 
 import numpy as np
@@ -240,7 +240,7 @@ class SegmentationModelUtils(SegmentationSummaries):
     def predict_record(self, record=None, extra_tensors=None, extra_tensors_names=None, 
                        init_queues=True, length=None, with_input=False, batch_size=1,
                        num_parallele_batch=1, control=None, keep_prob=True,
-                       metrics=True):
+                       metrics=True, decode=tf.float32):
         """ Infers the probabilities and the predictions of a whole record.
         Args:
             record : string (default: None) record to infer, if not specified the model
@@ -274,18 +274,20 @@ class SegmentationModelUtils(SegmentationSummaries):
 
         """
         if record and init_queues:
-            image_out, anno_out = self.setup_queues(record, None, 
-                                                    batch_size, num_parallele_batch)
+            image_out, anno_out = self.setup_queues(record, None, batch_size,
+                                                    num_parallele_batch, decode=decode)
             assign_rgb_to_queue = tf.assign(self.rgb_v, image_out, 
                                             validate_shape=False)
             assign_lbl_to_queue = tf.assign(self.lbl_v, anno_out, 
                                             validate_shape=False)
             assign_to_variable = [assign_rgb_to_queue, assign_lbl_to_queue]
-            if to_control:
-                tqdm.write("Overwritting to_control variable as initialising queue")
-            to_control = tf.tuple(assign_to_variable, control_inputs=[image_out, anno_out])
+        
+        if control:
+            tqdm.write("Overwritting control variable as initialising queue")
+        else:    
+            control = tf.tuple(assign_to_variable, control_inputs=[image_out, anno_out])
             self.init_uninit([])
-            blank = tf.tuple([self.is_training], name=None, control_inputs=to_control)
+            blank = tf.tuple([self.is_training], name=None, control_inputs=control)
             self.sess.run(blank)
 
         if not length:

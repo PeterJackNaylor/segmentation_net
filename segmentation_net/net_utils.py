@@ -90,38 +90,45 @@ class ScoreRecorder(object):
             self.data_test = fill_table_line(self.data_test, epoch_number,
                                              training_dic)
             self.data_test.to_csv(self.test_file_name)
-    def find_best_epoch(self, tracking_variable, increase=True):
+    def find_best_epoch(self, tracking_variable, increase=True, train_set=True):
         """
         Find best epoch for model test set
         """
-        data = self.data_test.fillna(0.)
+        if train_set:
+            data = self.data_train.fillna(0.)
+        else:
+            data = self.data_test.fillna(0.)
         if increase:
             lagged_value = data.tail(self.lag + 1)[tracking_variable].idxmax()
         else:
             lagged_value = data.tail(self.lag + 1)[tracking_variable].idxmin()
         return lagged_value
 
-    def save_best(self, tracking_variable, save_weights=True):
+    def save_best(self, tracking_variable, save_weights=True, train_set=True):
         """
         Save best model
         """
         increase = True
         if tracking_variable == "loss":
             increase = False
-        best_epoch = self.find_best_epoch(tracking_variable, increase)
+        best_epoch = self.find_best_epoch(tracking_variable, increase, train_set)
         self.saver.restore(self.sess, "{}/model.ckpt-{}".format(self.log, best_epoch + 1))
         last_step = self.data_test.index.max()
         if best_epoch != last_step:
-            self.data_test.loc[last_step + 1] = self.data_test.loc[best_epoch]
+            # only does on the test set
+            if train_set:
+                self.data_train.loc[last_step + 1] = self.data_train.loc[best_epoch]
+            else:
+                self.data_test.loc[last_step + 1] = self.data_test.loc[best_epoch]
             if save_weights:
-                self.saver.save(self.sess, self.log + '/' + "model.ckpt", last_step + 1)
+                self.saver.save(self.sess, self.log + '/' + "model.ckpt", last_step + 2)
 
     def stop(self, tracking_variable, train_set=True):
         """
         If or not to perform early stopping for a given
         tracking variable on the test set.
         """
-        self.steps_before_allowed_to_check -= 1
+        self.steps_before_allowed_to_check = max(self.steps_before_allowed_to_check - 1, 0)
         if self.steps_before_allowed_to_check == 0:
             if self.stop_early:
                 increase = True

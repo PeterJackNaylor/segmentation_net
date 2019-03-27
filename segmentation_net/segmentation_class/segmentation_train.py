@@ -48,7 +48,8 @@ class SegmentationTrain(SegmentationModelUtils):
               save_weights=True, new_log=None, 
               num_parallele_batch=8, restore=False, 
               track_variable="loss", track_training=False,
-              tensorboard=True, return_best=False, decode=tf.float32):
+              tensorboard=True, save_best=True, return_best=False, 
+              decode=tf.float32):
         """ Trains the model on train record, optionnaly you can monitor
         the training by evaluation the test record
 
@@ -85,9 +86,12 @@ class SegmentationTrain(SegmentationModelUtils):
             restore : bool (default: False) if too restore from the new_log given.
             track_variable : str (default: loss) which variable to track in order to
                              perform early stopping.
-            track_training : bool (default: True) if to track track_variable on the 
+            track_training : bool (default: False) if to track track_variable on the 
                              training data or on the test data.
             tensorboard : bool (default: True) if to monitor the model via tensorboard.
+            save_best : bool (default: True) if to save the best model as last weights
+                        in case of early stopping or if there is a better possible model 
+                        with respect to the test set.
             return_best : bool (default: True) if to return the best model in case of early
                           stopping or if there is a better possible model with respect to 
                           the test set.
@@ -98,7 +102,7 @@ class SegmentationTrain(SegmentationModelUtils):
             An python dictionnary recaping the training and if present the test history.
 
         """
-        steps_in_epoch = ut.record_size(train_record) // batch_size
+        steps_in_epoch = max(ut.record_size(train_record) // batch_size, 1)
         test_steps = ut.record_size(test_record) //batch_size if test_record is not None else None
         max_steps = steps_in_epoch * n_epochs
         self.tensorboard = tensorboard
@@ -228,9 +232,10 @@ and decrease every = {}"
                         if self.verbose > 0:
                             tqdm.write('stopping early')
                         break
-        if test_record:
-            self.score_recorder.save_best(track_variable, save_weights)
+        if save_best:
+            self.score_recorder.save_best(track_variable, save_weights, train_set=track_training)
         if return_best:
+            # actually works when save best 
             tqdm.write("restore_best NOT IMPLEMENTED")
         return self.score_recorder.all_tables()
 
