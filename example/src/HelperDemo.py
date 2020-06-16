@@ -1,12 +1,11 @@
 from glob import glob
-import nibabel as ni
 from skimage.transform import resize
 from skimage import io, img_as_ubyte, img_as_bool
 from skimage.segmentation import find_boundaries, mark_boundaries
 import numpy as np
 import os
 from tqdm import *
-from segmentation_net import SegmentationNet, Unet, UnetPadded, BatchNormedUnet, ExampleDatagen
+from segmentation_net import PangNet, Unet, UnetPadded, BatchNormedUnet, ExampleDatagen
 from segmentation_net.utils import expend
 import matplotlib.pylab as plt
 import tensorflow as tf
@@ -20,17 +19,24 @@ def CheckOrCreate(path):
     if not os.path.isdir(path):
         os.makedirs(path)
 
-def LoadNiiGz(name):
-    image = ni.load(name)
-    img = np.array(image.get_data())[:,:,0]
-    img = img.transpose()
-    img[img > 0] = 1
-    img = img.astype('uint8')
+
+def LoadRGB(name, mask=False):
+    img = io.imread(name)
+    if not mask:
+        img = img[:,:,0:3]
+    else:
+        img[img < 125] = 0
+        img[img > 0] = 1
     return img
 
-def LoadRGB(name):
-    img = io.imread(name)[:,:,0:3]
-    return img
+def find_mask(path):
+    return path.replace('raw', 'lbl')
+
+def plot_with_annotation(raw_name, title=None):
+    rgb = LoadRGB(raw_name)
+    mask = LoadRGB(find_mask(raw_name), mask=True) 
+    plot_overlay(rgb, mask, title)
+
 
 def FindRGB(name, train=True):
     sigle = os.path.basename(name).split('_')[0]
@@ -70,10 +76,10 @@ def plot_slide(img_path, title=None):
     mask = io.imread(mask_path)
     plot_overlay(img, mask, title)
 
-def plot_annotation(mask_name, title=None):
-    rgb = LoadRGB(FindRGB(mask_name))
-    mask = LoadNiiGz(mask_name) 
-    plot_overlay(rgb, mask, title)
+# def plot_annotation(mask_name, title=None, train=False):
+#     rgb = LoadRGB(FindRGB(mask_name, train))
+#     mask = LoadNiiGz(mask_name) 
+#     plot_overlay(rgb, mask, title)
 
 def Predict(model, rgb):
     #import pdb; pdb.set_trace()
@@ -83,9 +89,8 @@ def Predict(model, rgb):
     mask = resize(resized_mask['predictions'], (original_shape), order=0, preserve_range=True).astype('uint8')
     return mask
 
-def RandomImagePick(n_copies=1):
-    files = glob('./Data/Data_TissueSegmentation/SmallerWSI/*.png') + \
-            glob('./Data/Data_TissueSegmentation/SmallerBio/*.png')
+def RandomImagePick(path, n_copies=1):
+    files = glob(path)
     for _ in range(n_copies):
         f = np.random.choice(files, replace=False)
         yield f, LoadRGB(f)
@@ -100,13 +105,15 @@ class TissueGenerator(ExampleDatagen):
         self.dic = {(f, i): self.create_couple(f, i) for f, i in self.indices}
         self.current_iter = 0
     def load_img(self, image_name):
-        img = LoadRGB(FindRGB(image_name, self.train))
+        img = LoadRGB(image_name)
         img = resize(img, self.size, order=0, 
                      preserve_range=True, mode='reflect', 
                      anti_aliasing=True).astype(img.dtype)
+        # img = img.astype('float32')
+        # img = img / 255.
         return img
     def load_mask(self, image_name):
-        img = LoadNiiGz(image_name)
+        img = LoadRGB(find_mask(image_name), mask=True)
         img = resize(img, self.size, order=0, 
                      preserve_range=True, mode='reflect',
                      anti_aliasing=True).astype(img.dtype)
@@ -229,16 +236,14 @@ def sliding_window(image, stepSize, windowSize):
                 res_img = image[y:y + windowSize[1], x:x + windowSize[0]]
             yield (x, y, x + windowSize[0], y + windowSize[1], res_img)
 
-def slidding_window_predict(img, mean, mod):
-    if mean is not None:
-        img = img - mean
+def slidding_window_predict(img, mod):
     rgb_shape_x = img.shape[0] - 184
     rgb_shape_y = img.shape[1] - 184
     res = np.zeros(shape=(rgb_shape_x, rgb_shape_y), dtype='uint8')
     res_prob = np.zeros(shape=(rgb_shape_x, rgb_shape_y), dtype='uint8')
     for x, y, w_x, h_y, slide in sliding_window(img, 212, (396, 396)):
         tensor = np.expand_dims(slide, 0)
-        feed_dict = {mod.input_node: tensor,
+        feed_dict = {mod.rgb_ph: tensor,
                      mod.is_training: False}
         tensors_names = ["predictions", "probability"]
         tensors_to_get = [mod.predictions, mod.probability]
@@ -254,14 +259,14 @@ def slidding_window_predict(img, mean, mod):
         out_dic[name] = tens
     return out_dic
     
-def unet_pred(img, mean, mod):
+def unet_pred(img, mod):
     prev_shape = img.shape[0:2]
     img = resize(img, (512, 512), order=0, 
                  preserve_range=True, mode='reflect', 
                  anti_aliasing=True).astype(img.dtype)
     unet_img = expend(img, 92, 92)
     #mask = model.predict(rgb, mean=mean_array)['predictions'].astype('uint8')
-    dic_mask = slidding_window_predict(unet_img, mean, mod)
+    dic_mask = slidding_window_predict(unet_img, mod)
     dic_mask['predictions'][dic_mask['predictions'] > 0] = 255
     dic_mask['predictions'] = img_as_bool(resize(dic_mask['predictions'], prev_shape, order=0, 
                                      preserve_range=True, mode='reflect', 
@@ -301,21 +306,21 @@ def plot_curves(name, dic, keep=None):
         if name in k:
             if keep is None:
                 test = dic[k]['test']
-                mini_tab = test[['f1']]
+                mini_tab = test[['f1_score']]
                 mini_tab['step'] = mini_tab.index
                 mini_tab['Category'] = k
                 res = pd.concat([res, mini_tab], axis=0)
             else:
                 if k in keep:
                     test = dic[k]['test']
-                    mini_tab = test[['f1']]
+                    mini_tab = test[['f1_score']]
                     mini_tab['step'] = mini_tab.index
                     mini_tab['Category'] = k
                     res = pd.concat([res, mini_tab], axis=0)
 
     res = res.fillna(0)
     plt.figure(figsize=(20,10))
-    sns.pointplot(x="step", y="f1", hue="Category", data=res)
+    sns.pointplot(x="step", y="f1_score", hue="Category", data=res)
     plt.show()
     return res
 
@@ -325,24 +330,23 @@ def id_(x):
 def plot_quadoverlay(best_model, test_img, mean_array, n, aux_func=id_):
     fig, axes = plt.subplots(nrows=4, ncols=n, figsize=(16,16), sharex=True, sharey=True)
     for key in best_model.keys():
-        model = return_good_object(key, best_model[key])
+        model = return_good_object(key, best_model[key], mean_array)
         k = 0
         for name, rgb in test_img:
             if 'Unet' == key:
                 row = 1
-                rgb = rgb - mean_array
                 mask = Predict(model, rgb)
-                rgb = (rgb + mean_array).astype('uint8')
+                rgb = rgb.astype('uint8')
             elif 'BatchNormedUnet' in key:
-                mask = unet_pred(rgb, mean_array, model)['predictions']
+                mask = unet_pred(rgb, model)['predictions']
                 row = 3
-                axes[row, k].set_xlabel(name, fontsize=12)
+                axes[row, k].set_xlabel(os.path.basename(name), fontsize=12)
             elif 'UnetPadded' in key:
                 row = 2
-                mask = unet_pred(rgb, mean_array, model)['predictions']
+                mask = unet_pred(rgb, model)['predictions']
             elif 'PangNet' in key:
                 row = 0
-                mask = model.predict(rgb, mean=mean_array)['predictions'].astype('uint8')
+                mask = model.predict(rgb)['predictions'].astype('uint8')
             cleaned_mask = aux_func(mask)
             axes[row, k].imshow(AddContours(rgb, cleaned_mask))
             axes[row, k].get_xaxis().set_ticks([])
@@ -352,38 +356,38 @@ def plot_quadoverlay(best_model, test_img, mean_array, n, aux_func=id_):
                 axes[row, k].set_ylabel(key, fontsize=12)
             k += 1
             
-def return_good_object(key1, key2):
+def return_good_object(key1, key2, mean_array):
     num_channels = 3
     tmp = 'tmp'
     num_labels = 2 
     tensorboard = False
     displacement = 0
     if key1 == "PangNet":
-        model = SegmentationNet(image_size=(224, 224), log=os.path.join(tmp, key2), 
+        model = PangNet(image_size=(224, 224), log=os.path.join(tmp, key2), 
                        num_channels=num_channels, num_labels=num_labels,
-                       tensorboard=tensorboard, seed=None,
-                       verbose=0, displacement=displacement)
+                       seed=None,
+                       verbose=0, displacement=displacement, mean_array=mean_array)
     
     elif key1 == "Unet":
         arch = int(key2.split('__')[2])
         model = Unet(image_size=(256, 256), log=os.path.join(tmp, key2), 
                      num_channels=num_channels, num_labels=num_labels,
-                     tensorboard=tensorboard, seed=None,
-                     verbose=0, n_features=arch)
+                     seed=None,
+                     verbose=0, n_features=arch, mean_array=mean_array)
     elif key1 == 'UnetPadded': 
         mod, lr, arch = key2.split('__')
         model = UnetPadded(image_size=(212, 212), log=os.path.join(tmp, key2), 
                            num_channels=num_channels, num_labels=num_labels,
-                           tensorboard=tensorboard, seed=None,
-                           verbose=0, n_features=int(arch))
+                           seed=None,
+                           verbose=0, n_features=int(arch), mean_array=mean_array)
     elif key1 == 'BatchNormedUnet':
         mod, lr, _ = key2.split('__')
         model = BatchNormedUnet(image_size=(212, 212), log=os.path.join(tmp, key2), 
                                 num_channels=num_channels, num_labels=num_labels,
-                                tensorboard=tensorboard, seed=None,
-                                verbose=0, n_features=16)
+                                seed=None,
+                                verbose=0, n_features=16, mean_array=mean_array)
     return model
-def plot_validation(val_res, list_rgb, list_label, unet=False):
+def plot_validation(val_res, list_rgb, list_label, unet=False, n=5):
     for _ in range(len(list_rgb)):
         rgb = list_rgb[_].astype('uint8')
         if unet:
@@ -392,9 +396,10 @@ def plot_validation(val_res, list_rgb, list_label, unet=False):
         pred = val_res['predictions'][_].astype('uint8')
         b = AddContours(rgb, lab)
         c = AddContours(rgb, pred)
-        score = val_res['f1'][_]
+        score = val_res['f1_score'][_]
         plot_triplet(rgb, b, c, title="Comparaison RGB/GT/Prediction. f1_score: {}".format(score))
-
+        if _ == n:
+            break
 
 def recap_tab(table, name):
     tab = table.copy()
@@ -418,7 +423,7 @@ def recap_tab(table, name):
         tab = tab.drop(c, 1)
         tab = tab.groupby([mod, lr, bs]).max()
         
-    best = "__".join(tab["f1"].argmax())
+    best = "__".join(tab["f1_score"].argmax())
     print("best model is: {}".format(best))
     return tab, best
 

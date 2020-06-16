@@ -113,7 +113,6 @@ def initialize_uninitialized_vars(sess, feed_dict, extra_variables=[]):
     """
     initialize all uninitialized variables in tensorflow graph.
     """
-    #import pdb; pdb.set_trace()
     global_vars = tf.global_variables() + tf.local_variables() + extra_variables
     is_not_initialized = sess.run([~(tf.is_variable_initialized(var))
                                    for var in global_vars],
