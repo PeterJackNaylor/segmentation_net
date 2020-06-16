@@ -17,11 +17,12 @@ You can also install it directly from the Python Package Index with this command
 
 Usage
 -------
+Please see [this repository](url:https://github.com/PeterJackNaylor/BestNucleiModel).
 
 
-
-Example
+TO DO
 ---------
+Sphinx generated documentation.
 
 Licence
 --------
